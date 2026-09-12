@@ -219,7 +219,7 @@ abstract class BaseNeteaseDataSource(
             throw AppError.Unauthorized("这份 Cookie 已失效，请重新从浏览器复制一份")
         }
         // fetchProfile 期间可能合并了新的 Set-Cookie，这里把它和 userId 一起落盘
-        session.saveSession(session.cookie().ifBlank { normalized }, profile.id)
+        session.saveSession(session.cookie().ifBlank { normalized }, profile.userId)
         return profile
     }
 

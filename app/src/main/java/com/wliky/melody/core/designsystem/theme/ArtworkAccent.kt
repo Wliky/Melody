@@ -1,6 +1,5 @@
 package com.wliky.melody.core.designsystem.theme
 
-import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -12,6 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.drawable.toBitmap
 import androidx.palette.graphics.Palette
 import coil.imageLoader
@@ -87,7 +87,7 @@ private suspend fun extractAccent(
  */
 private fun normalizeForTheme(color: Color, darkTheme: Boolean): Color {
     val hsl = FloatArray(3)
-    AndroidColor.colorToHSL(color.toArgb(), hsl)
+    ColorUtils.colorToHSL(color.toArgb(), hsl)
     // 低饱和的封面（黑白、灰调）取出来会像"没上色"，给它一点饱和度下限
     hsl[1] = hsl[1].coerceAtLeast(0.20f)
     hsl[2] = if (darkTheme) {
@@ -95,5 +95,5 @@ private fun normalizeForTheme(color: Color, darkTheme: Boolean): Color {
     } else {
         hsl[2].coerceIn(0.24f, 0.46f)
     }
-    return Color(AndroidColor.HSLToColor(hsl))
+    return Color(ColorUtils.HSLToColor(hsl))
 }
