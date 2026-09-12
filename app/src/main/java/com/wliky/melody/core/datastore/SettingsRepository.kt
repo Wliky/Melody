@@ -26,13 +26,12 @@ data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val dynamicColor: Boolean = true,
     /**
-     * 默认走**自建 API 服务**。
+     * v0.4.0 起默认走**官方直连**（weapi 加密）。
      *
-     * 直连模式要自己实现 weapi / eapi 签名，网易一改风控就整条链路失效（扫码登录就是这么坏的）；
-     * 自建服务是纯 HTTP，兼容性最好，出问题也能自己改服务端。地址见 [DEFAULT_API_BASE_URL]，
-     * 用户可以在「设置 → 数据源」里改成自己部署的实例。
+     * 首页推荐、听歌足迹、评论等接口都要求真实登录态，官方直连速度最快、数据最全，
+     * 不依赖第三方自建服务。登录由 WebView 走网易云官方登录页，拿到的 MUSIC_U 完全满足直连要求。
      */
-    val apiMode: ApiMode = ApiMode.API_SERVER,
+    val apiMode: ApiMode = ApiMode.DIRECT,
     /** 仅 [ApiMode.API_SERVER] 使用；留空则回落到 [DEFAULT_API_BASE_URL]。 */
     val apiBaseUrl: String = DEFAULT_API_BASE_URL,
     val audioQuality: AudioQuality = AudioQuality.EXHIGH,
@@ -43,6 +42,11 @@ data class AppSettings(
      * 关闭它只会停止「上报」，本地播放历史始终照常记录。
      */
     val reportPlayback: Boolean = true,
+    /**
+     * 通知栏歌词：把当前播放的歌词行同步到系统媒体通知（MediaSession），
+     * 无需蓝牙、无需悬浮窗权限，下拉通知栏即可看到歌词。
+     */
+    val notificationLyric: Boolean = true,
 )
 
 /**
@@ -70,16 +74,18 @@ class SettingsRepository @Inject constructor(
         val apiBaseUrl = stringPreferencesKey("api_base_url")
         val audioQuality = stringPreferencesKey("audio_quality")
         val reportPlayback = booleanPreferencesKey("report_playback")
+        val notificationLyric = booleanPreferencesKey("notification_lyric")
     }
 
     val settings: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
         AppSettings(
             themeMode = prefs[Keys.themeMode].toEnum(ThemeMode.SYSTEM),
             dynamicColor = prefs[Keys.dynamicColor] ?: true,
-            apiMode = prefs[Keys.apiMode].toEnum(ApiMode.API_SERVER),
+            apiMode = prefs[Keys.apiMode].toEnum(ApiMode.DIRECT),
             apiBaseUrl = prefs[Keys.apiBaseUrl].orEmpty().trim().ifBlank { DEFAULT_API_BASE_URL },
             audioQuality = prefs[Keys.audioQuality].toEnum(AudioQuality.EXHIGH),
             reportPlayback = prefs[Keys.reportPlayback] ?: true,
+            notificationLyric = prefs[Keys.notificationLyric] ?: true,
         )
     }
 
@@ -96,6 +102,8 @@ class SettingsRepository @Inject constructor(
     suspend fun setAudioQuality(quality: AudioQuality) = edit { it[Keys.audioQuality] = quality.name }
 
     suspend fun setReportPlayback(enabled: Boolean) = edit { it[Keys.reportPlayback] = enabled }
+
+    suspend fun setNotificationLyric(enabled: Boolean) = edit { it[Keys.notificationLyric] = enabled }
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         context.settingsDataStore.edit { block(it) }

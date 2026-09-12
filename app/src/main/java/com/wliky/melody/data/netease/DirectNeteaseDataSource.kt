@@ -3,10 +3,16 @@ package com.wliky.melody.data.netease
 import com.wliky.melody.core.common.AppError
 import com.wliky.melody.core.model.ApiMode
 import com.wliky.melody.core.model.AudioQuality
+import com.wliky.melody.core.model.CommentPage
+import com.wliky.melody.core.model.CommentSort
+import com.wliky.melody.core.model.PlaybackEvent
 import com.wliky.melody.core.model.SongUrl
 import com.wliky.melody.core.network.ApiClient
 import com.wliky.melody.core.network.CookieParser
+import com.wliky.melody.core.network.MelodyJson
+import com.wliky.melody.core.network.arr
 import com.wliky.melody.core.network.arrayOrNull
+import com.wliky.melody.core.network.boolean
 import com.wliky.melody.core.network.int
 import com.wliky.melody.core.network.jsonObjectOf
 import com.wliky.melody.core.network.obj
@@ -14,6 +20,7 @@ import com.wliky.melody.core.network.objOrNull
 import com.wliky.melody.core.network.str
 import com.wliky.melody.core.network.toJsonPrimitive
 import com.wliky.melody.core.security.SecureSessionStore
+import com.wliky.melody.data.netease.dto.toDomain
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.json.JsonArray
@@ -48,6 +55,8 @@ class DirectNeteaseDataSource @Inject constructor(
 ) : BaseNeteaseDataSource(apiClient, session) {
 
     override val mode: ApiMode = ApiMode.DIRECT
+
+    override val supportsPlaybackReport: Boolean = true
 
     override fun adaptPayload(endpoint: NeteaseEndpoint, payload: JsonObject): JsonObject = when (endpoint) {
         NeteaseEndpoint.CLOUD_SEARCH ->
@@ -181,6 +190,127 @@ class DirectNeteaseDataSource @Inject constructor(
         val code = element.objOrNull()?.int("code") ?: return
         // 301 = 需要登录 / 登录态失效
         if (code == 301) throw AppError.Unauthorized()
+    }
+
+    /**
+     * 官方直连的播放记录上报（听歌足迹）。
+     *
+     * 走 weapi 的 `/api/feedback/weblog`，这是网易云官方客户端上报「听歌」行为的接口，
+     * 上报成功后该歌曲会出现在账号的「最近播放」里 —— 也就是用户要的「听歌足迹」。
+     * 参数：songId / sourceId=0（来自搜索/推荐）/ time（本次听的秒数）。
+     */
+    override suspend fun reportPlayback(events: List<PlaybackEvent>): Boolean {
+        if (events.isEmpty()) return true
+        var allSucceeded = true
+        events.forEach { event ->
+            val ok = runCatching {
+                val payload = JsonObject(
+                    mapOf(
+                        "logs" to JsonPrimitive(
+                            JsonArray(
+                                listOf(
+                                    JsonObject(
+                                        mapOf(
+                                            "action" to JsonPrimitive("play"),
+                                            "json" to JsonObject(
+                                                mapOf(
+                                                    "download" to JsonPrimitive(0),
+                                                    "end" to JsonPrimitive("playend"),
+                                                    "id" to JsonPrimitive(event.songId),
+                                                    "sourceId" to JsonPrimitive("0"),
+                                                    "time" to JsonPrimitive(event.durationSeconds.coerceAtLeast(1)),
+                                                    "type" to JsonPrimitive("song"),
+                                                    "wifi" to JsonPrimitive(1),
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ).toString(),
+                        ),
+                    ),
+                )
+                requestViaWeapiForReport(payload)
+                true
+            }.getOrDefault(false)
+            if (!ok) allSucceeded = false
+        }
+        return allSucceeded
+    }
+
+    /** scrobble 上报专用：走 weapi 的 /api/feedback/weblog 接口（与普通业务接口同 host）。 */
+    private suspend fun requestViaWeapiForReport(payload: JsonObject) {
+        val path = "/weapi/feedback/weblog"
+        val cookie = session.cookie()
+        val csrf = CookieParser.parsePairs(cookie)["__csrf"].orEmpty()
+        val body = if (csrf.isBlank()) payload else JsonObject(payload + ("csrf_token" to JsonPrimitive(csrf)))
+        val form = NeteaseCrypto.weapi(body.toString())
+        val url = "$WEB_HOST$path?csrf_token=$csrf"
+        val response = apiClient.postForm(url, form, webHeaders(cookie, mobile = false))
+        mergeCookies(response.setCookies())
+        response.requireSuccess()
+    }
+
+    /**
+     * 官方直连的歌曲评论（只读）。
+     *
+     * 走 weapi 的 `/api/v1/resource/comments/R_SO_4_${id}`，这是官方客户端同款评论接口，
+     * 支持 `limit / offset / beforeTime` 分页，按时间倒序返回。这里把「热门/最新」都映射到
+     * 同一接口（官方该资源接口本身不分热门维度，热门评论另有接口，为简化只做时间序）。
+     */
+    override suspend fun songComments(
+        songId: String,
+        sort: CommentSort,
+        cursor: Long,
+        limit: Int,
+    ): CommentPage {
+        if (songId.isBlank()) return CommentPage.EMPTY
+        val safeLimit = limit.coerceAtLeast(1)
+        val offset = cursor.toInt().coerceAtLeast(0)
+        val payload = JsonObject(
+            mapOf(
+                "rid" to JsonPrimitive(songId),
+                "threadId" to JsonPrimitive("R_SO_4_$songId"),
+                "pageNo" to JsonPrimitive((offset / safeLimit.coerceAtLeast(1)) + 1),
+                "pageSize" to JsonPrimitive(safeLimit),
+                "cursor" to JsonPrimitive(offset),
+                "offset" to JsonPrimitive(0),
+                "orderType" to JsonPrimitive(if (sort == CommentSort.HOT) 99 else 3),
+                "csrf_token" to JsonPrimitive(CookieParser.parsePairs(session.cookie())["__csrf"].orEmpty()),
+            ),
+        )
+        val element = requestCommentViaWeapi(payload)
+        val obj = element.objOrNull() ?: return CommentPage.EMPTY
+        val data = obj.obj("data") ?: return CommentPage.EMPTY
+        val commentsArray = data.arr("comments") ?: return CommentPage.EMPTY
+
+        val items = commentsArray.mapNotNull { el ->
+            val commentObj = el.objOrNull() ?: return@mapNotNull null
+            val dto = runCatching {
+                MelodyJson.decodeFromJsonElement(
+                    com.wliky.melody.data.netease.dto.CommentDto.serializer(),
+                    commentObj,
+                )
+            }.getOrNull() ?: return@mapNotNull null
+            dto.toDomain()
+        }
+        val total = data.int("totalCount") ?: data.int("total") ?: 0
+        val hasMore = data.boolean("hasMore") ?: (items.size >= safeLimit)
+        val nextCursor = (offset + items.size).toLong()
+        return CommentPage(items = items, cursor = nextCursor, hasMore = hasMore, total = total)
+    }
+
+    /** 评论接口专用：直接走 weapi 的 /api/v1/resource/comments/R_SO_4_${id}，不经过 requirePath。 */
+    private suspend fun requestCommentViaWeapi(payload: JsonObject): JsonElement {
+        val cookie = session.cookie()
+        val csrf = CookieParser.parsePairs(cookie)["__csrf"].orEmpty()
+        val body = if (csrf.isBlank()) payload else JsonObject(payload + ("csrf_token" to JsonPrimitive(csrf)))
+        val form = NeteaseCrypto.weapi(body.toString())
+        val url = "$WEB_HOST/weapi/v1/resource/comments/${payload.str("threadId").orEmpty()}"
+        val response = apiClient.postForm(url, form, webHeaders(cookie, mobile = false))
+        mergeCookies(response.setCookies())
+        response.requireSuccess()
+        return response.parseBody(url)
     }
 
     /** 判断登录链路响应是否真的带回了可用数据（403 时 body 是一段 HTML 或空对象）。 */

@@ -90,6 +90,12 @@ interface NeteaseDataSource {
     suspend fun likeSongs(userId: String): List<Song>
     suspend fun remotePlayRecords(userId: String): List<Song>
 
+    /**
+     * 最近播放（听歌足迹）：官方账号最近播放的歌曲列表。
+     * 与 [remotePlayRecords]（听歌排行）不同，这是「最近听了什么」的时间线。
+     */
+    suspend fun recentSongs(): List<Song>
+
     /** 上报播放事件。返回 false 表示当前模式不支持（由 SyncRepository 标记为 SKIPPED）。 */
     suspend fun reportPlayback(events: List<PlaybackEvent>): Boolean
 

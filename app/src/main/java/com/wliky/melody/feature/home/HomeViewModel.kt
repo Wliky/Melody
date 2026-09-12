@@ -6,6 +6,7 @@ import com.wliky.melody.core.common.AppError
 import com.wliky.melody.core.common.onFailure
 import com.wliky.melody.core.common.onSuccess
 import com.wliky.melody.core.model.HomeFeed
+import com.wliky.melody.core.model.UserProfile
 import com.wliky.melody.data.repository.AuthRepository
 import com.wliky.melody.data.repository.HomeRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -43,8 +44,14 @@ class HomeViewModel @Inject constructor(
 
     val loggedIn: StateFlow<Boolean> = authRepository.loggedIn
 
+    /** 当前登录用户信息（首页顶部显示用户名）。 */
+    val profile: StateFlow<UserProfile?> = authRepository.profile
+
     init {
         load(forceRefresh = false)
+        viewModelScope.launch {
+            authRepository.loadProfile(force = false)
+        }
     }
 
     fun load(forceRefresh: Boolean = false) {

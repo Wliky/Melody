@@ -589,6 +589,20 @@ abstract class BaseNeteaseDataSource(
         return songs(array)
     }
 
+    /**
+     * 最近播放（听歌足迹）：走官方 /api/record/recent/song，需要登录态。
+     * 返回结构为 `data.list` 数组（每项是 song 对象），也可能是顶层数组。
+     */
+    override suspend fun recentSongs(): List<Song> {
+        if (!session.hasAuthToken()) return emptyList()
+        val response = call(NeteaseEndpoint.RECENT_SONG, jsonObjectOf()).objOrNull() ?: return emptyList()
+        val array = response.arr("list")
+            ?: response.obj("data").arr("list")
+            ?: response.obj("data").arr("songs")
+            ?: JsonArray(emptyList())
+        return songs(array)
+    }
+
     /** 基类默认不支持上报，由 [ApiServerNeteaseDataSource] 覆盖。 */
     override suspend fun reportPlayback(events: List<PlaybackEvent>): Boolean = false
 

@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.CloudSync
+import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.Login
 import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.Palette
@@ -141,6 +142,18 @@ fun SettingsScreen(
                         Switch(
                             checked = settings.reportPlayback,
                             onCheckedChange = viewModel::setReportPlayback,
+                        )
+                    },
+                )
+                SettingItem(
+                    title = "通知栏歌词",
+                    subtitle = "把当前歌词同步到系统媒体通知，下拉即可看到，无需蓝牙或悬浮窗权限",
+                    icon = Icons.Rounded.Lyrics,
+                    onClick = { viewModel.setNotificationLyric(!settings.notificationLyric) },
+                    trailing = {
+                        Switch(
+                            checked = settings.notificationLyric,
+                            onCheckedChange = viewModel::setNotificationLyric,
                         )
                     },
                 )

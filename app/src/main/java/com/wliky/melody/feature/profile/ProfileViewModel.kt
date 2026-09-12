@@ -5,8 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.wliky.melody.core.common.AppError
 import com.wliky.melody.core.common.fold
 import com.wliky.melody.core.model.Playlist
+import com.wliky.melody.core.model.Song
 import com.wliky.melody.core.model.UserProfile
 import com.wliky.melody.data.repository.AuthRepository
+import com.wliky.melody.data.repository.HistoryRepository
 import com.wliky.melody.data.repository.PlaylistRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -20,6 +22,7 @@ import kotlinx.coroutines.launch
 class ProfileViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val playlistRepository: PlaylistRepository,
+    private val historyRepository: HistoryRepository,
 ) : ViewModel() {
 
     data class UiState(
@@ -27,6 +30,7 @@ class ProfileViewModel @Inject constructor(
         val profile: UserProfile? = null,
         val playlists: List<Playlist> = emptyList(),
         val likedSongCount: Int = 0,
+        val recentSongs: List<Song> = emptyList(),
         val error: AppError? = null,
     )
 
@@ -67,6 +71,14 @@ class ProfileViewModel @Inject constructor(
                     _state.update { it.copy(likedSongCount = songs.size) }
                 },
                 onFailure = { /* 收藏不可用不影响其它区块 */ },
+            )
+
+            // 听歌足迹：官方账号最近播放（需要登录）
+            historyRepository.recentSongs().fold(
+                onSuccess = { songs ->
+                    _state.update { it.copy(recentSongs = songs) }
+                },
+                onFailure = { /* 足迹不可用不影响其它区块 */ },
             )
         }
     }

@@ -146,6 +146,8 @@ class MockNeteaseDataSource @Inject constructor(
 
     override suspend fun remotePlayRecords(userId: String): List<Song> = songs.take(8)
 
+    override suspend fun recentSongs(): List<Song> = songs.take(8)
+
     override suspend fun reportPlayback(events: List<PlaybackEvent>): Boolean = false
 
     // ---- 评论 ----

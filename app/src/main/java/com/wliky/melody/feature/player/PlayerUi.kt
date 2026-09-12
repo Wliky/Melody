@@ -1,8 +1,14 @@
 package com.wliky.melody.feature.player
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -15,6 +21,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -66,6 +73,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -73,23 +82,24 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.wliky.melody.core.designsystem.component.CoverImage
 import com.wliky.melody.core.designsystem.component.EmptyState
 import com.wliky.melody.core.designsystem.component.SongRow
+import com.wliky.melody.core.designsystem.component.coverBrush
 import com.wliky.melody.core.designsystem.format.formatDuration
 import com.wliky.melody.core.designsystem.theme.LocalMelodyAccent
 import com.wliky.melody.core.designsystem.theme.rememberArtworkAccent
 import com.wliky.melody.core.model.AppRepeatMode
 import com.wliky.melody.core.model.Lyric
+import com.wliky.melody.core.model.NowPlaying
 import com.wliky.melody.core.model.PlaybackSnapshot
 import com.wliky.melody.core.model.PlayerState
 import com.wliky.melody.core.model.Song
 
 /**
  * 迷你播放器：浮在底栏上方的一条圆角卡片，点击展开全屏播放器。
- *
- * v0.3.0-preview.3+：相比上版增加了「喜欢」按钮（跟随 NeteaseSongUrlProvider 中的
- * hasAuthToken 判定），外观保持不变。
  */
 @Composable
 fun MiniPlayer(
@@ -191,14 +201,11 @@ enum class PlayerTab(val label: String) {
 /**
  * 全屏播放器。
  *
- * v0.3.0-preview.3+ 重写：参考 [Mooic](https://github.com/kid-depress/Mooic) 的 Player.kt：
- *  - 顶部 chevron-down 收起按钮
- *  - 1:1 大圆角封面占上方主空间，跟随封面取色作背景渐变
- *  - 歌名 / 艺人 marquee 滚动
- *  - 自定义细轨 Slider
- *  - 五按钮均匀分布（shuffle / prev / play / next / repeat）
- *  - 中部 Tab 切换：歌词 / 评论 / 队列
- *  - 评论 Tab 接 [CommentsPanel]，按需懒加载
+ * v0.4.0 重写：
+ *  - 竖屏：居中**圆形旋转封面**（黑胶质感，播放时缓慢旋转、暂停停止），点击封面弹出歌词二级页
+ *  - 横屏：左侧封面 + 歌曲信息，右侧歌词（双栏）
+ *  - 用 BackHandler 拦截系统返回手势，先收起播放器而不是退出 App
+ *  - 底部 Tab：歌词 / 评论 / 队列
  */
 @Composable
 fun AnimatedFullPlayer(
@@ -220,6 +227,9 @@ fun AnimatedFullPlayer(
     onMessageShown: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // 关键修复：全屏播放器打开时拦截系统返回手势，先收起播放器，而不是退出 App。
+    BackHandler(enabled = visible) { onClose() }
+
     AnimatedVisibility(
         visible = visible,
         enter = slideInVertically(animationSpec = tween(300)) { it },
@@ -266,6 +276,8 @@ private fun FullPlayerScreen(
     onMessageShown: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(PlayerTab.LYRIC) }
+    // 封面点击弹出的歌词二级页
+    var showLyricOverlay by rememberSaveable { mutableStateOf(false) }
     val nowPlaying = snapshot.nowPlaying
     val fallbackAccent = MaterialTheme.colorScheme.primary
     val rawAccent = rememberArtworkAccent(nowPlaying?.coverUrl, fallbackAccent)
@@ -275,6 +287,8 @@ private fun FullPlayerScreen(
         label = "artwork-accent",
     )
     val surface = MaterialTheme.colorScheme.surface
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
     LaunchedEffect(message) {
         if (message != null) onMessageShown()
@@ -283,7 +297,7 @@ private fun FullPlayerScreen(
     CompositionLocalProvider(LocalMelodyAccent provides accent) {
         Surface(modifier = Modifier.fillMaxSize(), color = surface) {
             Box(modifier = Modifier.fillMaxSize()) {
-                // 封面主色渐变背景：顶部最浓，向下过渡回表面色
+                // 封面主色渐变背景
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -297,106 +311,430 @@ private fun FullPlayerScreen(
                         ),
                 )
 
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .systemBarsPadding(),
-                ) {
-                    PlayerTopBar(
-                        album = nowPlaying?.album.orEmpty(),
-                        onClose = onClose,
-                        onOpenQueue = { tab = PlayerTab.QUEUE },
-                    )
-
-                    // 封面占据中间的可变空间，并始终保持正方形（取宽高较小的一边）
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1.2f)
-                            .padding(horizontal = 40.dp, vertical = 10.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CoverImage(
-                            url = nowPlaying?.coverUrl,
-                            seed = nowPlaying?.songId.orEmpty(),
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .shadow(
-                                    elevation = 26.dp,
-                                    shape = RoundedCornerShape(28.dp),
-                                    ambientColor = accent,
-                                    spotColor = accent,
-                                ),
-                            corner = 28.dp,
-                            iconSize = 72.dp,
-                        )
-                    }
-
-                    NowPlayingMeta(
-                        title = nowPlaying?.title.orEmpty(),
-                        artist = nowPlaying?.artist.orEmpty(),
-                        errorMessage = snapshot.errorMessage,
-                    )
-
-                    SeekBar(snapshot = snapshot, accent = accent, onSeek = onSeek)
-                    PlayerControls(
+                if (isLandscape) {
+                    LandscapePlayer(
                         snapshot = snapshot,
+                        lyric = lyric,
+                        queue = queue,
+                        tab = tab,
                         accent = accent,
+                        onClose = onClose,
                         onToggle = onToggle,
                         onNext = onNext,
                         onPrevious = onPrevious,
+                        onSeek = onSeek,
                         onCycleRepeat = onCycleRepeat,
                         onToggleShuffle = onToggleShuffle,
+                        onPlayAt = onPlayAt,
+                        onRemoveFromQueue = onRemoveFromQueue,
+                        onClearQueue = onClearQueue,
+                        onSelectTab = { tab = it },
+                        onOpenLyric = { showLyricOverlay = true },
                     )
-                    PlayerTabSwitcher(
+                } else {
+                    PortraitPlayer(
+                        snapshot = snapshot,
+                        lyric = lyric,
+                        queue = queue,
                         tab = tab,
-                        queueSize = queue.size,
                         accent = accent,
-                        onSelect = { tab = it },
+                        onClose = onClose,
+                        onToggle = onToggle,
+                        onNext = onNext,
+                        onPrevious = onPrevious,
+                        onSeek = onSeek,
+                        onCycleRepeat = onCycleRepeat,
+                        onToggleShuffle = onToggleShuffle,
+                        onPlayAt = onPlayAt,
+                        onRemoveFromQueue = onRemoveFromQueue,
+                        onClearQueue = onClearQueue,
+                        onSelectTab = { tab = it },
+                        onOpenLyric = { showLyricOverlay = true },
                     )
+                }
 
-                    when (tab) {
-                        PlayerTab.LYRIC -> LyricPanel(
-                            lyric = lyric,
-                            positionMs = snapshot.positionMs,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f),
-                        )
-                        PlayerTab.COMMENT -> {
-                            val commentsViewModel: CommentsViewModel = hiltViewModel()
-                            val commentsState by commentsViewModel.state.collectAsStateWithLifecycle()
-                            val songId = nowPlaying?.songId.orEmpty()
-                            LaunchedEffect(songId, tab) {
-                                if (tab == PlayerTab.COMMENT && songId.isNotBlank()) {
-                                    commentsViewModel.loadIfNeeded(songId)
-                                }
-                            }
-                            CommentsPanel(
-                                state = commentsState,
-                                onSwitchSort = { sort -> commentsViewModel.switchSort(songId, sort) },
-                                onRefresh = { commentsViewModel.loadIfNeeded(songId, force = true) },
-                                onLoadMore = { commentsViewModel.loadMore() },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f),
-                            )
-                        }
-                        PlayerTab.QUEUE -> QueuePanel(
-                            queue = queue,
-                            currentIndex = snapshot.queueIndex,
-                            onPlayAt = onPlayAt,
-                            onRemoveFromQueue = onRemoveFromQueue,
-                            onClearQueue = onClearQueue,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f),
-                        )
-                    }
+                // 歌词二级页（点击封面弹出）
+                if (showLyricOverlay) {
+                    LyricOverlay(
+                        snapshot = snapshot,
+                        lyric = lyric,
+                        accent = accent,
+                        onClose = { showLyricOverlay = false },
+                    )
                 }
             }
         }
     }
+}
+
+/**
+ * 竖屏播放器：居中圆形旋转封面 + 歌名 + 进度 + 控制 + Tab。
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun PortraitPlayer(
+    snapshot: PlaybackSnapshot,
+    lyric: Lyric?,
+    queue: List<Song>,
+    tab: PlayerTab,
+    accent: Color,
+    onClose: () -> Unit,
+    onToggle: () -> Unit,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onCycleRepeat: () -> Unit,
+    onToggleShuffle: () -> Unit,
+    onPlayAt: (Int) -> Unit,
+    onRemoveFromQueue: (Int) -> Unit,
+    onClearQueue: () -> Unit,
+    onSelectTab: (PlayerTab) -> Unit,
+    onOpenLyric: () -> Unit,
+) {
+    val nowPlaying = snapshot.nowPlaying
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .systemBarsPadding(),
+    ) {
+        PlayerTopBar(
+            album = nowPlaying?.album.orEmpty(),
+            onClose = onClose,
+            onOpenQueue = { onSelectTab(PlayerTab.QUEUE) },
+        )
+
+        // 居中圆形旋转封面
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1.25f)
+                .padding(vertical = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            RotatingArtwork(
+                url = nowPlaying?.coverUrl,
+                seed = nowPlaying?.songId.orEmpty(),
+                isPlaying = nowPlaying?.isPlaying == true,
+                accent = accent,
+                onClick = onOpenLyric,
+            )
+        }
+
+        NowPlayingMeta(
+            title = nowPlaying?.title.orEmpty(),
+            artist = nowPlaying?.artist.orEmpty(),
+            errorMessage = snapshot.errorMessage,
+        )
+
+        SeekBar(snapshot = snapshot, accent = accent, onSeek = onSeek)
+        PlayerControls(
+            snapshot = snapshot,
+            accent = accent,
+            onToggle = onToggle,
+            onNext = onNext,
+            onPrevious = onPrevious,
+            onCycleRepeat = onCycleRepeat,
+            onToggleShuffle = onToggleShuffle,
+        )
+        PlayerTabSwitcher(
+            tab = tab,
+            queueSize = queue.size,
+            accent = accent,
+            onSelect = onSelectTab,
+        )
+
+        when (tab) {
+            PlayerTab.LYRIC -> LyricPanel(
+                lyric = lyric,
+                positionMs = snapshot.positionMs,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
+            PlayerTab.COMMENT -> CommentTab(
+                nowPlaying = nowPlaying,
+                tab = tab,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
+            PlayerTab.QUEUE -> QueuePanel(
+                queue = queue,
+                currentIndex = snapshot.queueIndex,
+                onPlayAt = onPlayAt,
+                onRemoveFromQueue = onRemoveFromQueue,
+                onClearQueue = onClearQueue,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
+        }
+    }
+}
+
+/**
+ * 横屏播放器：左侧封面 + 歌曲信息，右侧歌词。
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun LandscapePlayer(
+    snapshot: PlaybackSnapshot,
+    lyric: Lyric?,
+    queue: List<Song>,
+    tab: PlayerTab,
+    accent: Color,
+    onClose: () -> Unit,
+    onToggle: () -> Unit,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onCycleRepeat: () -> Unit,
+    onToggleShuffle: () -> Unit,
+    onPlayAt: (Int) -> Unit,
+    onRemoveFromQueue: (Int) -> Unit,
+    onClearQueue: () -> Unit,
+    onSelectTab: (PlayerTab) -> Unit,
+    onOpenLyric: () -> Unit,
+) {
+    val nowPlaying = snapshot.nowPlaying
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .systemBarsPadding(),
+    ) {
+        PlayerTopBar(
+            album = nowPlaying?.album.orEmpty(),
+            onClose = onClose,
+            onOpenQueue = { onSelectTab(PlayerTab.QUEUE) },
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(horizontal = 24.dp, vertical = 8.dp),
+        ) {
+            // 左侧：封面 + 歌曲信息 + 控制
+            Column(
+                modifier = Modifier
+                    .weight(0.9f)
+                    .fillMaxHeight(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                RotatingArtwork(
+                    url = nowPlaying?.coverUrl,
+                    seed = nowPlaying?.songId.orEmpty(),
+                    isPlaying = nowPlaying?.isPlaying == true,
+                    accent = accent,
+                    onClick = onOpenLyric,
+                    maxSize = 300.dp,
+                )
+                Spacer(Modifier.height(18.dp))
+                NowPlayingMeta(
+                    title = nowPlaying?.title.orEmpty(),
+                    artist = nowPlaying?.artist.orEmpty(),
+                    errorMessage = snapshot.errorMessage,
+                )
+                SeekBar(snapshot = snapshot, accent = accent, onSeek = onSeek)
+                PlayerControls(
+                    snapshot = snapshot,
+                    accent = accent,
+                    onToggle = onToggle,
+                    onNext = onNext,
+                    onPrevious = onPrevious,
+                    onCycleRepeat = onCycleRepeat,
+                    onToggleShuffle = onToggleShuffle,
+                )
+            }
+
+            Spacer(Modifier.width(20.dp))
+
+            // 右侧：歌词 / 评论 / 队列
+            Column(
+                modifier = Modifier
+                    .weight(1.1f)
+                    .fillMaxHeight(),
+            ) {
+                PlayerTabSwitcher(
+                    tab = tab,
+                    queueSize = queue.size,
+                    accent = accent,
+                    onSelect = onSelectTab,
+                )
+                when (tab) {
+                    PlayerTab.LYRIC -> LyricPanel(
+                        lyric = lyric,
+                        positionMs = snapshot.positionMs,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    )
+                    PlayerTab.COMMENT -> CommentTab(
+                        nowPlaying = nowPlaying,
+                        tab = tab,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    )
+                    PlayerTab.QUEUE -> QueuePanel(
+                        queue = queue,
+                        currentIndex = snapshot.queueIndex,
+                        onPlayAt = onPlayAt,
+                        onRemoveFromQueue = onRemoveFromQueue,
+                        onClearQueue = onClearQueue,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 圆形旋转封面：黑胶唱片质感，播放时缓慢旋转、暂停停止。
+ */
+@Composable
+private fun RotatingArtwork(
+    url: String?,
+    seed: String,
+    isPlaying: Boolean,
+    accent: Color,
+    onClick: () -> Unit,
+    maxSize: androidx.compose.ui.unit.Dp = 300.dp,
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "artwork-rotation")
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 20000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "rotation",
+    )
+
+    // 唱片底色圆盘（比封面稍大，模拟黑胶外圈）
+    Box(
+        modifier = Modifier
+            .size(maxSize)
+            .graphicsLayer {
+                rotationZ = if (isPlaying) rotation else 0f
+            }
+            .clip(CircleShape)
+            .background(Color(0xFF1A1A1A))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        // 黑胶纹路：中心小圆 + 环形
+        Box(
+            modifier = Modifier
+                .fillMaxSize(0.94f)
+                .clip(CircleShape)
+                .background(accent.copy(alpha = 0.15f)),
+        )
+        // 封面本体（圆形）
+        Box(
+            modifier = Modifier
+                .fillMaxSize(0.66f)
+                .shadow(8.dp, CircleShape)
+                .clip(CircleShape)
+                .background(coverBrush(seed)),
+        ) {
+            if (!url.isNullOrBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                        .data(url)
+                        .crossfade(220)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Rounded.QueueMusic,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(40.dp),
+                )
+            }
+        }
+        // 中心唱针圆点
+        Box(
+            modifier = Modifier
+                .size(16.dp)
+                .clip(CircleShape)
+                .background(Color(0xFFE0E0E0).copy(alpha = 0.9f)),
+        )
+    }
+}
+
+/**
+ * 歌词二级页（点击封面弹出），全屏覆盖。
+ */
+@Composable
+private fun LyricOverlay(
+    snapshot: PlaybackSnapshot,
+    lyric: Lyric?,
+    accent: Color,
+    onClose: () -> Unit,
+) {
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)) {
+        Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onClose) {
+                    Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "收起歌词")
+                }
+                Text(
+                    text = "歌词",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.width(48.dp))
+            }
+            LyricPanel(
+                lyric = lyric,
+                positionMs = snapshot.positionMs,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun CommentTab(
+    nowPlaying: NowPlaying?,
+    tab: PlayerTab,
+    modifier: Modifier = Modifier,
+) {
+    val commentsViewModel: CommentsViewModel = hiltViewModel()
+    val commentsState by commentsViewModel.state.collectAsStateWithLifecycle()
+    val songId = nowPlaying?.songId.orEmpty()
+    LaunchedEffect(songId, tab) {
+        if (tab == PlayerTab.COMMENT && songId.isNotBlank()) {
+            commentsViewModel.loadIfNeeded(songId)
+        }
+    }
+    CommentsPanel(
+        state = commentsState,
+        onSwitchSort = { sort -> commentsViewModel.switchSort(songId, sort) },
+        onRefresh = { commentsViewModel.loadIfNeeded(songId, force = true) },
+        onLoadMore = { commentsViewModel.loadMore() },
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -405,12 +743,16 @@ private fun NowPlayingMeta(
     artist: String,
     errorMessage: String?,
 ) {
-    Column(modifier = Modifier.padding(horizontal = 28.dp, vertical = 12.dp)) {
+    Column(
+        modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         Text(
             text = title.ifBlank { "还没有播放中的歌曲" },
             style = MaterialTheme.typography.headlineSmall,
             maxLines = 1,
-            modifier = Modifier.basicMarquee(),
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().basicMarquee(),
         )
         Spacer(Modifier.height(4.dp))
         Text(
@@ -418,7 +760,8 @@ private fun NowPlayingMeta(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
-            modifier = Modifier.basicMarquee(),
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().basicMarquee(),
         )
         errorMessage?.let { error ->
             Spacer(Modifier.height(6.dp))
@@ -813,8 +1156,7 @@ private fun QueuePanel(
 }
 
 /**
- * 极简线性进度指示条；这是 Melody 自带的 linearprogressindicator 之外的轻量实现，
- * 仅在 mini player 顶部使用（高度 2dp）。
+ * 极简线性进度指示条。
  */
 @Composable
 private fun LinearProgressIndicator(

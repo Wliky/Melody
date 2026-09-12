@@ -1,16 +1,20 @@
 package com.wliky.melody.core.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * 领域模型：与平台、与网易云接口完全解耦。
  * 所有远端 ID 统一使用 String，避免不同平台间的整数溢出 / 类型差异（见开发约定）。
  */
 
+@Serializable
 data class Artist(
     val id: String,
     val name: String,
     val avatarUrl: String? = null,
 )
 
+@Serializable
 data class Album(
     val id: String,
     val name: String,
@@ -22,6 +26,7 @@ data class Album(
     val artistText: String get() = artists.joinToString(" / ") { it.name }
 }
 
+@Serializable
 data class Song(
     val id: String,
     val name: String,
@@ -37,6 +42,7 @@ data class Song(
     val isPaidOnly: Boolean get() = fee == 1 || fee == 4
 }
 
+@Serializable
 data class Playlist(
     val id: String,
     val name: String,
@@ -50,11 +56,13 @@ data class Playlist(
     val specialType: Int = 0,
 )
 
+@Serializable
 data class PlaylistDetail(
     val playlist: Playlist,
     val songs: List<Song> = emptyList(),
 )
 
+@Serializable
 data class RankingList(
     val id: String,
     val name: String,
@@ -62,6 +70,7 @@ data class RankingList(
     val updateFrequency: String? = null,
 )
 
+@Serializable
 data class UserProfile(
     val userId: String,
     val nickname: String,
@@ -72,6 +81,7 @@ data class UserProfile(
     val listenSongs: Long = 0L,
 )
 
+@Serializable
 data class HomeFeed(
     val recommendedPlaylists: List<Playlist> = emptyList(),
     val personalizedSongs: List<Song> = emptyList(),
@@ -79,6 +89,7 @@ data class HomeFeed(
     val rankings: List<RankingList> = emptyList(),
 )
 
+@Serializable
 data class SearchSuggestions(
     val songs: List<Song> = emptyList(),
     val artists: List<Artist> = emptyList(),
@@ -89,6 +100,7 @@ data class SearchSuggestions(
 }
 
 /** 统一分页模型（见开发约定：分页统一 Page<T>）。 */
+@Serializable
 data class Page<T>(
     val items: List<T> = emptyList(),
     val page: Int = 0,
@@ -107,12 +119,14 @@ data class Page<T>(
     }
 }
 
+@Serializable
 data class QrCodeInfo(
     val key: String,
     val content: String,
 )
 
 /** 一行歌词。translation 为翻译（若接口提供）。 */
+@Serializable
 data class LyricLine(
     val timeMs: Long,
     val text: String,

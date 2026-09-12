@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Search
@@ -38,8 +37,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.wliky.melody.feature.auth.LoginScreen
 import com.wliky.melody.feature.auth.LoginViewModel
-import com.wliky.melody.feature.history.HistoryScreen
-import com.wliky.melody.feature.history.HistoryViewModel
 import com.wliky.melody.feature.home.HomeScreen
 import com.wliky.melody.feature.home.HomeViewModel
 import com.wliky.melody.feature.player.AnimatedFullPlayer
@@ -58,7 +55,6 @@ object Destinations {
     const val HOME = "home"
     const val SEARCH = "search"
     const val PROFILE = "profile"
-    const val HISTORY = "history"
     const val SETTINGS = "settings"
     const val LOGIN = "login"
     const val PLAYLIST = "playlist/{playlistId}"
@@ -72,10 +68,9 @@ private data class NavEntry(
     val icon: ImageVector,
 )
 
+// v0.4.0：只保留「首页 / 我的」两个底部 Tab，搜索改由首页顶部搜索栏进入。
 private val navEntries = listOf(
     NavEntry(Destinations.HOME, "首页", Icons.Rounded.Home),
-    NavEntry(Destinations.SEARCH, "搜索", Icons.Rounded.Search),
-    NavEntry(Destinations.HISTORY, "历史", Icons.Rounded.History),
     NavEntry(Destinations.PROFILE, "我的", Icons.Rounded.Person),
 )
 
@@ -195,16 +190,8 @@ fun MelodyApp() {
                                 viewModel = viewModel,
                                 isWide = isWide,
                                 onOpenLogin = { navController.navigate(Destinations.LOGIN) },
-                                onOpenHistory = { navController.navigate(Destinations.HISTORY) },
                                 onOpenSettings = { navController.navigate(Destinations.SETTINGS) },
                                 onOpenPlaylist = { navController.navigate(Destinations.playlist(it)) },
-                            )
-                        }
-
-                        composable(Destinations.HISTORY) {
-                            val viewModel: HistoryViewModel = hiltViewModel()
-                            HistoryScreen(
-                                viewModel = viewModel,
                                 onPlay = playerViewModel::play,
                             )
                         }

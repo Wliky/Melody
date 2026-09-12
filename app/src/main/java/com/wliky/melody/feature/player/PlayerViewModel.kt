@@ -5,11 +5,13 @@ import androidx.lifecycle.viewModelScope
 import com.wliky.melody.core.common.Clock
 import com.wliky.melody.core.common.onFailure
 import com.wliky.melody.core.common.onSuccess
+import com.wliky.melody.core.datastore.SettingsRepository
 import com.wliky.melody.core.model.AppRepeatMode
 import com.wliky.melody.core.model.Lyric
 import com.wliky.melody.core.model.PlayerState
 import com.wliky.melody.core.model.PlaybackSnapshot
 import com.wliky.melody.core.model.Song
+import com.wliky.melody.core.player.NotificationLyricBridge
 import com.wliky.melody.core.player.PlaybackEventRecorder
 import com.wliky.melody.core.player.PlayerController
 import com.wliky.melody.data.repository.HistoryRepository
@@ -34,6 +36,8 @@ class PlayerViewModel @Inject constructor(
     private val musicRepository: MusicRepository,
     private val historyRepository: HistoryRepository,
     private val syncRepository: SyncRepository,
+    private val lyricBridge: NotificationLyricBridge,
+    settingsRepository: SettingsRepository,
     clock: Clock,
 ) : ViewModel() {
 
@@ -64,6 +68,12 @@ class PlayerViewModel @Inject constructor(
 
     init {
         viewModelScope.launch { player.connect() }
+        // 订阅通知栏歌词开关
+        viewModelScope.launch {
+            settingsRepository.settings.collect { settings ->
+                lyricBridge.setEnabled(settings.notificationLyric)
+            }
+        }
         viewModelScope.launch {
             snapshot.collect { snap ->
                 val nowPlaying = snap.nowPlaying
@@ -75,8 +85,24 @@ class PlayerViewModel @Inject constructor(
                 recorder.onPosition(snap.positionMs, nowPlaying?.isPlaying == true)
                 if (snap.state == PlayerState.ENDED) recorder.markCompleted()
                 snap.errorMessage?.let { _message.value = it }
+                // 通知栏歌词：根据当前进度定位歌词行
+                updateNotificationLyric(snap.positionMs)
             }
         }
+    }
+
+    private fun updateNotificationLyric(positionMs: Long) {
+        val current = _lyric.value ?: run {
+            lyricBridge.update(null)
+            return
+        }
+        if (current.isEmpty) {
+            lyricBridge.update(null)
+            return
+        }
+        val index = current.indexAt(positionMs)
+        val line = if (index >= 0) current.lines[index].text else null
+        lyricBridge.update(line)
     }
 
     fun play(songs: List<Song>, startIndex: Int) {

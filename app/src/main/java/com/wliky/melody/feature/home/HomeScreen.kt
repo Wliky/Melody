@@ -73,6 +73,7 @@ fun HomeScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val loggedIn by viewModel.loggedIn.collectAsStateWithLifecycle()
+    val profile by viewModel.profile.collectAsStateWithLifecycle()
 
     PullToRefreshBox(
         isRefreshing = state.refreshing,
@@ -97,6 +98,7 @@ fun HomeScreen(
                 feed = state.feed,
                 isWide = isWide,
                 loggedIn = loggedIn,
+                nickname = profile?.nickname,
                 nowPlayingId = nowPlayingId,
                 onOpenSearch = onOpenSearch,
                 onOpenPlaylist = onOpenPlaylist,
@@ -112,6 +114,7 @@ private fun HomeContent(
     feed: HomeFeed?,
     isWide: Boolean,
     loggedIn: Boolean,
+    nickname: String?,
     nowPlayingId: String?,
     onOpenSearch: () -> Unit,
     onOpenPlaylist: (String) -> Unit,
@@ -126,6 +129,7 @@ private fun HomeContent(
             HomeHeader(
                 greeting = rememberGreeting(),
                 loggedIn = loggedIn,
+                nickname = nickname,
                 onOpenSearch = onOpenSearch,
                 onOpenLogin = onOpenLogin,
             )
@@ -258,12 +262,13 @@ private fun LoginBanner(onOpenLogin: () -> Unit) {
 
 /**
  * 页头：问候语 + 品牌名 + 搜索入口。
- * 未登录时右侧显示登录按钮，而不是在页面中间插一条横幅提示。
+ * 登录后右侧显示用户头像/昵称，未登录时显示登录按钮。
  */
 @Composable
 private fun HomeHeader(
     greeting: String,
     loggedIn: Boolean,
+    nickname: String?,
     onOpenSearch: () -> Unit,
     onOpenLogin: () -> Unit,
 ) {
@@ -276,8 +281,12 @@ private fun HomeHeader(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    text = "Melody",
-                    style = MaterialTheme.typography.displaySmall,
+                    text = if (loggedIn && !nickname.isNullOrBlank()) nickname else "Melody",
+                    style = if (loggedIn && !nickname.isNullOrBlank()) {
+                        MaterialTheme.typography.headlineMedium
+                    } else {
+                        MaterialTheme.typography.displaySmall
+                    },
                 )
             }
             if (!loggedIn) {

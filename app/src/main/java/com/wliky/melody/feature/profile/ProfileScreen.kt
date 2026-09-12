@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -49,11 +50,12 @@ import com.wliky.melody.core.designsystem.component.SectionHeader
 import com.wliky.melody.core.designsystem.component.SettingItem
 import com.wliky.melody.core.designsystem.component.SettingsGroup
 import com.wliky.melody.core.model.Playlist
+import com.wliky.melody.core.model.Song
 import com.wliky.melody.core.model.UserProfile
 import com.wliky.melody.feature.common.PlaylistCard
 
 /**
- * 我的：账号卡片 → 快捷统计 → 我的歌单 → 入口列表。
+ * 我的：账号卡片 → 快捷统计 → 最近播放（听歌足迹）→ 我的歌单 → 设置。
  * 未登录时用一张友好的引导卡替代，而不是空白页。
  */
 @Composable
@@ -61,9 +63,9 @@ fun ProfileScreen(
     viewModel: ProfileViewModel,
     isWide: Boolean,
     onOpenLogin: () -> Unit,
-    onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenPlaylist: (String) -> Unit,
+    onPlay: (List<Song>, Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -80,7 +82,7 @@ fun ProfileScreen(
             } else {
                 GuestHero(
                     description = if (requiresLogin) {
-                        "登录后可以查看你的歌单、收藏与播放历史"
+                        "登录后可以查看你的歌单、收藏与听歌足迹"
                     } else {
                         "当前是演示模式，无需登录即可体验全部界面"
                     },
@@ -94,8 +96,35 @@ fun ProfileScreen(
             StatsRow(
                 likedCount = state.likedSongCount,
                 playlistCount = state.playlists.size,
-                onOpenHistory = onOpenHistory,
             )
+        }
+
+        // 最近播放（听歌足迹）：官方账号最近听的歌
+        item { SectionHeader(title = "最近播放", subtitle = "同步自你的网易云账号") }
+        if (state.recentSongs.isEmpty()) {
+            item {
+                Text(
+                    text = if (loggedIn) "还没有播放记录" else "登录后同步听歌足迹",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 20.dp),
+                )
+            }
+        } else {
+            item {
+                LazyRow(contentPadding = PaddingValues(horizontal = 20.dp)) {
+                    items(state.recentSongs, key = { it.id }) { song ->
+                        RecentSongCard(
+                            song = song,
+                            onClick = { onPlay(state.recentSongs, state.recentSongs.indexOf(song)) },
+                            modifier = Modifier.padding(end = 14.dp),
+                        )
+                    }
+                }
+            }
         }
 
         item { SectionHeader(title = "我的歌单", subtitle = if (loggedIn) null else "登录后可见") }
@@ -138,14 +167,8 @@ fun ProfileScreen(
         item {
             SettingsGroup {
                 SettingItem(
-                    title = "播放历史与同步",
-                    subtitle = "本地历史、自动同步状态",
-                    icon = Icons.Rounded.History,
-                    onClick = onOpenHistory,
-                )
-                SettingItem(
                     title = "设置",
-                    subtitle = "数据源、音质、主题与隐私说明",
+                    subtitle = "音质、主题、通知栏歌词与隐私说明",
                     icon = Icons.Rounded.Settings,
                     onClick = onOpenSettings,
                 )
@@ -162,6 +185,46 @@ fun ProfileScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+    }
+}
+
+/** 最近播放卡片（听歌足迹）。 */
+@Composable
+private fun RecentSongCard(
+    song: Song,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .width(132.dp)
+            .clip(MaterialTheme.shapes.medium)
+            .clickable(onClick = onClick)
+            .padding(2.dp),
+    ) {
+        CoverImage(
+            url = song.coverUrl,
+            seed = song.id,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f),
+            corner = 16.dp,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = song.name,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = song.artistText,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -321,7 +384,6 @@ private fun GuestHero(
 private fun StatsRow(
     likedCount: Int,
     playlistCount: Int,
-    onOpenHistory: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -333,14 +395,12 @@ private fun StatsRow(
             icon = Icons.Rounded.Favorite,
             title = "我喜欢的音乐",
             value = if (likedCount > 0) "$likedCount 首" else "—",
-            onClick = onOpenHistory,
             modifier = Modifier.weight(1f),
         )
         StatCard(
             icon = Icons.Rounded.History,
-            title = "播放历史",
-            value = if (playlistCount > 0) "$playlistCount 个歌单" else "本地记录",
-            onClick = onOpenHistory,
+            title = "我的歌单",
+            value = if (playlistCount > 0) "$playlistCount 个" else "—",
             modifier = Modifier.weight(1f),
         )
     }
@@ -351,14 +411,12 @@ private fun StatCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     value: String,
-    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier
             .clip(MaterialTheme.shapes.large)
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .clickable(onClick = onClick)
             .padding(16.dp),
     ) {
         Icon(

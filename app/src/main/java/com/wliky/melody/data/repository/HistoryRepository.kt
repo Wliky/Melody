@@ -58,6 +58,15 @@ class HistoryRepository @Inject constructor(
         providers.current().remotePlayRecords(userId)
     }
 
+    /**
+     * 最近播放（听歌足迹）：官方账号最近播放的歌曲列表。
+     * 与 [remoteRecords]（听歌排行）不同，这是「最近听了什么」的时间线。
+     */
+    suspend fun recentSongs(): AppResult<List<Song>> = appRunCatching {
+        if (!session.hasAuthToken()) return@appRunCatching emptyList()
+        providers.current().recentSongs()
+    }
+
     private fun PlaybackHistoryEntity.toSong(): Song = Song(
         id = songId,
         name = songName,

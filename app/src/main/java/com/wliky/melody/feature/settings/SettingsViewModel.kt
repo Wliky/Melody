@@ -40,6 +40,8 @@ class SettingsViewModel @Inject constructor(
 
     fun setReportPlayback(enabled: Boolean) = launchSetting { settingsRepository.setReportPlayback(enabled) }
 
+    fun setNotificationLyric(enabled: Boolean) = launchSetting { settingsRepository.setNotificationLyric(enabled) }
+
     fun logout() {
         viewModelScope.launch {
             authRepository.logout()

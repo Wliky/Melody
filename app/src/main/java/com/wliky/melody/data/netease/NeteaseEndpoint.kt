@@ -49,6 +49,8 @@ enum class NeteaseEndpoint(
     TOPLIST("/api/toplist", "/toplist"),
     LIKE_LIST("/api/song/like/get", "/likelist"),
     PLAY_RECORD("/api/v1/play/record", "/user/record"),
+    /** 最近播放（听歌足迹）：官方客户端「最近播放」列表的数据源。 */
+    RECENT_SONG("/api/record/recent/song", "/record/recent/song"),
     SCROBBLE("", "/scrobble"),
 
     /** 歌曲评论（v0.3.0-preview.3+）：分页 + 排序参数（time / hot）。 */
