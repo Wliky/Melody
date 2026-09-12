@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 仅备份用户设置，绝不备份登录凭据（凭据保存在 Keystore 保护的存储中）。 -->
+<full-backup-content>
+    <include domain="sharedpref" path="melody_settings.xml" />
+    <exclude domain="sharedpref" path="melody_secure_session.xml" />
+    <exclude domain="database" path="melody.db" />
+</full-backup-content>
