@@ -11,9 +11,11 @@ import com.wliky.melody.core.model.PlaybackEvent
 import com.wliky.melody.core.network.ApiClient
 import com.wliky.melody.core.network.MelodyJson
 import com.wliky.melody.core.network.int
+import com.wliky.melody.core.network.obj
 import com.wliky.melody.core.network.objOrNull
 import com.wliky.melody.core.network.str
 import com.wliky.melody.core.security.SecureSessionStore
+import com.wliky.melody.data.netease.dto.toDomain
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException

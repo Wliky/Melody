@@ -593,6 +593,18 @@ abstract class BaseNeteaseDataSource(
     override suspend fun reportPlayback(events: List<PlaybackEvent>): Boolean = false
 
     /**
+     * 基类默认走空实现：直连模式与未来新增的数据源只要不打算支持评论，继承这个就行。
+     * [ApiServerNeteaseDataSource] 与 [MockNeteaseDataSource] 各自提供实现。
+     */
+    override suspend fun songComments(
+        songId: String,
+        sort: com.wliky.melody.core.model.CommentSort,
+        cursor: Long,
+        limit: Int,
+    ): com.wliky.melody.core.model.CommentPage =
+        throw AppError.Server("当前数据源不支持查看评论")
+
+    /**
      * 把响应的 Set-Cookie 合并进会话。
      *
      * **只有合并结果里带 `MUSIC_U` 才会落盘**。服务端对匿名请求也会下发

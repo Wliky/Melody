@@ -5,6 +5,9 @@ import com.wliky.melody.core.model.Album
 import com.wliky.melody.core.model.ApiMode
 import com.wliky.melody.core.model.Artist
 import com.wliky.melody.core.model.AudioQuality
+import com.wliky.melody.core.model.Comment
+import com.wliky.melody.core.model.CommentPage
+import com.wliky.melody.core.model.CommentSort
 import com.wliky.melody.core.model.HomeFeed
 import com.wliky.melody.core.model.Lyric
 import com.wliky.melody.core.lyric.LyricParser

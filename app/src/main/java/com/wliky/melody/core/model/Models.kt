@@ -141,7 +141,7 @@ data class Comment(
 
 /** 评论分页结果：一次性返回列表与游标。 */
 data class CommentPage(
-    val items: List<Comment>,
+    val items: List<Comment> = emptyList(),
     val cursor: Long = 0L,
     val hasMore: Boolean = false,
     val total: Int = 0,
