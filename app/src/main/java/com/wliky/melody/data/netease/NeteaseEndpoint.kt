@@ -50,6 +50,9 @@ enum class NeteaseEndpoint(
     LIKE_LIST("/api/song/like/get", "/likelist"),
     PLAY_RECORD("/api/v1/play/record", "/user/record"),
     SCROBBLE("", "/scrobble"),
+
+    /** 歌曲评论（v0.3.0-preview.3+）：分页 + 排序参数（time / hot）。 */
+    COMMENT_MUSIC("", "/comment/music"),
     ;
 
     /**

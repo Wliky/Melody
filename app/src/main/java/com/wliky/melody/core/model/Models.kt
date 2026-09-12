@@ -119,6 +119,44 @@ data class LyricLine(
     val translation: String? = null,
 )
 
+/**
+ * 一条歌曲评论（v0.3.0-preview.3+）。
+ *
+ * 只读模型 —— 当前不提供发送评论入口（官方风控严、第三方接口大概率失败）。
+ * 时间戳为服务端返回的 `time`（秒），UI 层用 `Date` 解析时再做格式化。
+ */
+data class Comment(
+    val id: String,
+    val userId: String,
+    val nickname: String,
+    val avatarUrl: String? = null,
+    val content: String,
+    val publishTimeSec: Long = 0L,
+    val likedCount: Int = 0,
+    val liked: Boolean = false,
+    /** 楼层回复数（api-enhanced 在普通评论接口里也返回 `total`）。 */
+    val replyCount: Int = 0,
+    val ipLabel: String? = null,
+)
+
+/** 评论分页结果：一次性返回列表与游标。 */
+data class CommentPage(
+    val items: List<Comment>,
+    val cursor: Long = 0L,
+    val hasMore: Boolean = false,
+    val total: Int = 0,
+) {
+    companion object {
+        val EMPTY = CommentPage()
+    }
+}
+
+/** 评论排序方式。 */
+enum class CommentSort(val apiValue: String, val label: String) {
+    HOT("hot", "热门"),
+    TIME("time", "最新"),
+}
+
 /** 歌词。解析与 UI 完全解耦，见 [com.wliky.melody.core.lyric.LyricParser]。 */
 data class Lyric(
     val lines: List<LyricLine> = emptyList(),

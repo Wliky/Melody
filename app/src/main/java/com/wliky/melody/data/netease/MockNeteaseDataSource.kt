@@ -145,6 +145,74 @@ class MockNeteaseDataSource @Inject constructor(
 
     override suspend fun reportPlayback(events: List<PlaybackEvent>): Boolean = false
 
+    // ---- 评论 ----
+
+    override suspend fun songComments(
+        songId: String,
+        sort: CommentSort,
+        cursor: Long,
+        limit: Int,
+    ): CommentPage {
+        if (songId.isBlank()) return CommentPage.EMPTY
+        val startIndex = cursor.toInt().coerceAtLeast(0)
+        val pool = mockComments(songId)
+        val items = pool.drop(startIndex).take(limit.coerceAtLeast(1))
+        val hasMore = startIndex + items.size < pool.size
+        val nextCursor = (startIndex + items.size).toLong()
+        return CommentPage(items = items, cursor = nextCursor, hasMore = hasMore, total = pool.size)
+    }
+
+    private fun mockComments(songId: String): List<Comment> = listOf(
+        Comment(
+            id = "$songId-c1",
+            userId = "m-artist-1",
+            nickname = "晨雾里的远行",
+            avatarUrl = null,
+            content = "这首歌的氛围感太好了，深夜一个人戴耳机听，窗外下着小雨的时候特别合适。",
+            publishTimeSec = (System.currentTimeMillis() / 1000L) - 3_600,
+            likedCount = 248,
+            liked = false,
+            replyCount = 12,
+            ipLabel = "上海",
+        ),
+        Comment(
+            id = "$songId-c2",
+            userId = "m-artist-2",
+            nickname = "复古调音台",
+            avatarUrl = null,
+            content = "混音上的吉他音色和合成器 pad 比例把握得很好，不糊也不空。",
+            publishTimeSec = (System.currentTimeMillis() / 1000L) - 86_400,
+            likedCount = 167,
+            liked = false,
+            replyCount = 8,
+            ipLabel = "北京",
+        ),
+        Comment(
+            id = "$songId-c3",
+            userId = "m-artist-3",
+            nickname = "失眠急救站",
+            avatarUrl = null,
+            content = "有没有人和我一样，每次听到副歌就开始想起以前的一些人？",
+            publishTimeSec = (System.currentTimeMillis() / 1000L) - 172_800,
+            likedCount = 73,
+            liked = false,
+            replyCount = 4,
+            ipLabel = "广州",
+        ),
+        Comment(
+            id = "$songId-c4",
+            userId = "m-artist-4",
+            nickname = "耳机党",
+            avatarUrl = null,
+            content = "用 Wh-1000XM4 听效果拔群，背景的雨声采样细节非常清楚。",
+            publishTimeSec = (System.currentTimeMillis() / 1000L) - 345_600,
+            likedCount = 35,
+            liked = false,
+            replyCount = 1,
+            ipLabel = null,
+        ),
+    )
+
     // -------------------------------------------------------------- 内置数据
 
     private fun Song.matches(keyword: String): Boolean =

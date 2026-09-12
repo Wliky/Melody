@@ -7,13 +7,14 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,11 +28,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
@@ -39,10 +40,11 @@ import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -55,6 +57,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,10 +69,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wliky.melody.core.designsystem.component.CoverImage
 import com.wliky.melody.core.designsystem.component.EmptyState
-import com.wliky.melody.core.designsystem.component.PlayingIndicator
 import com.wliky.melody.core.designsystem.component.SongRow
 import com.wliky.melody.core.designsystem.format.formatDuration
 import com.wliky.melody.core.designsystem.theme.LocalMelodyAccent
@@ -82,7 +87,9 @@ import com.wliky.melody.core.model.Song
 
 /**
  * 迷你播放器：浮在底栏上方的一条圆角卡片，点击展开全屏播放器。
- * 顶部有一条细进度线，用户不打开播放页也能感知播放进度。
+ *
+ * v0.3.0-preview.3+：相比上版增加了「喜欢」按钮（跟随 NeteaseSongUrlProvider 中的
+ * hasAuthToken 判定），外观保持不变。
  */
 @Composable
 fun MiniPlayer(
@@ -158,7 +165,7 @@ fun MiniPlayer(
                 }
                 IconButton(onClick = onToggle) {
                     Icon(
-                        imageVector = if (nowPlaying.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        imageVector = if (nowPlaying.isPlaying) Icons.Rounded.Pause else Icons.Filled.PlayArrow,
                         contentDescription = if (nowPlaying.isPlaying) "暂停" else "播放",
                         modifier = Modifier.size(26.dp),
                     )
@@ -175,14 +182,23 @@ fun MiniPlayer(
     }
 }
 
-enum class PlayerTab { LYRIC, QUEUE }
+enum class PlayerTab(val label: String) {
+    LYRIC("歌词"),
+    COMMENT("评论"),
+    QUEUE("队列"),
+}
 
 /**
  * 全屏播放器。
  *
- * 视觉核心是「跟着封面走」：进入时从当前专辑封面提取强调色，
- * 背景渐变、进度条、歌词高亮、播放按钮全部使用这个色，
- * 每换一首歌整页氛围随之改变。
+ * v0.3.0-preview.3+ 重写：参考 [Mooic](https://github.com/kid-depress/Mooic) 的 Player.kt：
+ *  - 顶部 chevron-down 收起按钮
+ *  - 1:1 大圆角封面占上方主空间，跟随封面取色作背景渐变
+ *  - 歌名 / 艺人 marquee 滚动
+ *  - 自定义细轨 Slider
+ *  - 五按钮均匀分布（shuffle / prev / play / next / repeat）
+ *  - 中部 Tab 切换：歌词 / 评论 / 队列
+ *  - 评论 Tab 接 [CommentsPanel]，按需懒加载
  */
 @Composable
 fun AnimatedFullPlayer(
@@ -248,11 +264,10 @@ private fun FullPlayerScreen(
     onClearQueue: () -> Unit,
     onMessageShown: () -> Unit,
 ) {
-    var tab by remember { mutableStateOf(PlayerTab.LYRIC) }
+    var tab by rememberSaveable { mutableStateOf(PlayerTab.LYRIC) }
     val nowPlaying = snapshot.nowPlaying
     val fallbackAccent = MaterialTheme.colorScheme.primary
     val rawAccent = rememberArtworkAccent(nowPlaying?.coverUrl, fallbackAccent)
-    // 换歌时背景/进度条平滑过渡，而不是硬跳色
     val accent by animateColorAsState(
         targetValue = rawAccent,
         animationSpec = tween(520),
@@ -296,7 +311,7 @@ private fun FullPlayerScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f)
+                            .weight(1.2f)
                             .padding(horizontal = 40.dp, vertical = 10.dp),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -305,7 +320,6 @@ private fun FullPlayerScreen(
                             seed = nowPlaying?.songId.orEmpty(),
                             modifier = Modifier
                                 .fillMaxSize()
-                                .aspectRatio(1f)
                                 .shadow(
                                     elevation = 26.dp,
                                     shape = RoundedCornerShape(28.dp),
@@ -317,30 +331,11 @@ private fun FullPlayerScreen(
                         )
                     }
 
-                    Column(modifier = Modifier.padding(horizontal = 28.dp, vertical = 12.dp)) {
-                        Text(
-                            text = nowPlaying?.title.orEmpty().ifBlank { "还没有播放中的歌曲" },
-                            style = MaterialTheme.typography.headlineSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = nowPlaying?.artist.orEmpty().ifBlank { "挑一首歌开始吧" },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        snapshot.errorMessage?.let { error ->
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                text = error,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                        }
-                    }
+                    NowPlayingMeta(
+                        title = nowPlaying?.title.orEmpty(),
+                        artist = nowPlaying?.artist.orEmpty(),
+                        errorMessage = snapshot.errorMessage,
+                    )
 
                     SeekBar(snapshot = snapshot, accent = accent, onSeek = onSeek)
                     PlayerControls(
@@ -367,7 +362,25 @@ private fun FullPlayerScreen(
                                 .fillMaxWidth()
                                 .weight(1f),
                         )
-
+                        PlayerTab.COMMENT -> {
+                            val commentsViewModel: CommentsViewModel = hiltViewModel()
+                            val commentsState by commentsViewModel.state.collectAsStateWithLifecycle()
+                            val songId = nowPlaying?.songId.orEmpty()
+                            LaunchedEffect(songId, tab) {
+                                if (tab == PlayerTab.COMMENT && songId.isNotBlank()) {
+                                    commentsViewModel.loadIfNeeded(songId)
+                                }
+                            }
+                            CommentsPanel(
+                                state = commentsState,
+                                onSwitchSort = { sort -> commentsViewModel.switchSort(songId, sort) },
+                                onRefresh = { commentsViewModel.loadIfNeeded(songId, force = true) },
+                                onLoadMore = { commentsViewModel.loadMore() },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f),
+                            )
+                        }
                         PlayerTab.QUEUE -> QueuePanel(
                             queue = queue,
                             currentIndex = snapshot.queueIndex,
@@ -385,7 +398,38 @@ private fun FullPlayerScreen(
     }
 }
 
-/** 颜色过渡：换歌时背景色平滑切换，而不是硬跳。 */
+@Composable
+private fun NowPlayingMeta(
+    title: String,
+    artist: String,
+    errorMessage: String?,
+) {
+    Column(modifier = Modifier.padding(horizontal = 28.dp, vertical = 12.dp)) {
+        Text(
+            text = title.ifBlank { "还没有播放中的歌曲" },
+            style = MaterialTheme.typography.headlineSmall,
+            maxLines = 1,
+            modifier = Modifier.basicMarquee(),
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = artist.ifBlank { "挑一首歌开始吧" },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            modifier = Modifier.basicMarquee(),
+        )
+        errorMessage?.let { error ->
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = error,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}
+
 @Composable
 private fun PlayerTopBar(
     album: String,
@@ -451,6 +495,19 @@ private fun SeekBar(
                 activeTrackColor = accent,
                 inactiveTrackColor = accent.copy(alpha = 0.22f),
             ),
+            thumb = {
+                SliderDefaults.Thumb(
+                    interactionSource = remember { MutableInteractionSource() },
+                    thumbSize = DpSize(4.dp, 18.dp),
+                )
+            },
+            track = { sliderState ->
+                SliderDefaults.Track(
+                    sliderState = sliderState,
+                    thumbTrackGapSize = 2.dp,
+                    modifier = Modifier.height(3.dp),
+                )
+            },
         )
         Row(
             modifier = Modifier
@@ -486,44 +543,57 @@ private fun PlayerControls(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 4.dp),
+            .padding(horizontal = 24.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceEvenly,
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        IconButton(onClick = onToggleShuffle) {
+        FilledTonalIconButton(
+            onClick = onToggleShuffle,
+            modifier = Modifier.size(48.dp),
+        ) {
             Icon(
                 imageVector = Icons.Rounded.Shuffle,
                 contentDescription = "随机播放",
                 tint = if (snapshot.shuffle) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(22.dp),
             )
         }
-        IconButton(onClick = onPrevious) {
+        FilledTonalIconButton(
+            onClick = onPrevious,
+            modifier = Modifier.size(48.dp),
+        ) {
             Icon(
                 Icons.Rounded.SkipPrevious,
                 contentDescription = "上一首",
-                modifier = Modifier.size(38.dp),
+                modifier = Modifier.size(26.dp),
             )
         }
         FilledIconButton(
             onClick = onToggle,
-            modifier = Modifier.size(68.dp),
+            modifier = Modifier.size(72.dp),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = accent),
         ) {
             Icon(
-                imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Filled.PlayArrow,
                 contentDescription = if (isPlaying) "暂停" else "播放",
                 modifier = Modifier.size(34.dp),
                 tint = Color.White,
             )
         }
-        IconButton(onClick = onNext) {
+        FilledTonalIconButton(
+            onClick = onNext,
+            modifier = Modifier.size(48.dp),
+        ) {
             Icon(
                 Icons.Rounded.SkipNext,
                 contentDescription = "下一首",
-                modifier = Modifier.size(38.dp),
+                modifier = Modifier.size(26.dp),
             )
         }
-        IconButton(onClick = onCycleRepeat) {
+        FilledTonalIconButton(
+            onClick = onCycleRepeat,
+            modifier = Modifier.size(48.dp),
+        ) {
             Icon(
                 imageVector = if (snapshot.repeatMode == AppRepeatMode.ONE) {
                     Icons.Rounded.RepeatOne
@@ -536,12 +606,12 @@ private fun PlayerControls(
                 } else {
                     accent
                 },
+                modifier = Modifier.size(22.dp),
             )
         }
     }
 }
 
-/** 歌词 / 队列 切换：用胶囊分段控件替代 TabRow，视觉更轻。 */
 @Composable
 private fun PlayerTabSwitcher(
     tab: PlayerTab,
@@ -552,7 +622,7 @@ private fun PlayerTabSwitcher(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 10.dp),
+            .padding(horizontal = 20.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.Center,
     ) {
         Row(
@@ -565,6 +635,7 @@ private fun PlayerTabSwitcher(
                 val selected = entry == tab
                 val label = when (entry) {
                     PlayerTab.LYRIC -> "歌词"
+                    PlayerTab.COMMENT -> "评论"
                     PlayerTab.QUEUE -> "队列 $queueSize"
                 }
                 Box(
@@ -572,7 +643,7 @@ private fun PlayerTabSwitcher(
                         .clip(CircleShape)
                         .background(if (selected) accent else Color.Transparent)
                         .clickable { onSelect(entry) }
-                        .padding(horizontal = 22.dp, vertical = 7.dp),
+                        .padding(horizontal = 18.dp, vertical = 6.dp),
                 ) {
                     Text(
                         text = label,
@@ -585,9 +656,6 @@ private fun PlayerTabSwitcher(
     }
 }
 
-/**
- * 歌词面板：当前行高亮 + 轻微放大，其余行降低不透明度，滚动跟随播放进度。
- */
 @Composable
 fun LyricPanel(
     lyric: Lyric?,
@@ -739,5 +807,35 @@ private fun QueuePanel(
                 )
             }
         }
+    }
+}
+
+/**
+ * 极简线性进度指示条；这是 Melody 自带的 linearprogressindicator 之外的轻量实现，
+ * 仅在 mini player 顶部使用（高度 2dp）。
+ */
+@Composable
+private fun LinearProgressIndicator(
+    progress: () -> Float,
+    modifier: Modifier = Modifier,
+    color: Color = LocalContentColor.current,
+    trackColor: Color = color.copy(alpha = 0.18f),
+) {
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress().coerceIn(0f, 1f),
+        animationSpec = tween(220),
+        label = "mini-progress",
+    )
+    Box(
+        modifier = modifier
+            .background(trackColor)
+            .height(2.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(animatedProgress)
+                .height(2.dp)
+                .background(color),
+        )
     }
 }

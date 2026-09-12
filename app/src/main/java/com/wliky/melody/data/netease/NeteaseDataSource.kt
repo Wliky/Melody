@@ -4,6 +4,8 @@ import com.wliky.melody.core.model.Album
 import com.wliky.melody.core.model.ApiMode
 import com.wliky.melody.core.model.Artist
 import com.wliky.melody.core.model.AudioQuality
+import com.wliky.melody.core.model.CommentPage
+import com.wliky.melody.core.model.CommentSort
 import com.wliky.melody.core.model.HomeFeed
 import com.wliky.melody.core.model.Lyric
 import com.wliky.melody.core.model.LoginPollResult
@@ -90,4 +92,19 @@ interface NeteaseDataSource {
 
     /** 上报播放事件。返回 false 表示当前模式不支持（由 SyncRepository 标记为 SKIPPED）。 */
     suspend fun reportPlayback(events: List<PlaybackEvent>): Boolean
+
+    // ---- 评论 ----
+    /** 歌曲评论（v0.3.0-preview.3+，只读）。
+     *
+     * @param songId  网易云歌曲 ID
+     * @param sort    排序方式：[CommentSort.HOT] 热门（默认）/ [CommentSort.TIME] 最新
+     * @param cursor  分页游标；第一页传 0
+     * @param limit   每页大小
+     */
+    suspend fun songComments(
+        songId: String,
+        sort: CommentSort,
+        cursor: Long,
+        limit: Int,
+    ): CommentPage
 }

@@ -4,6 +4,9 @@ import com.wliky.melody.BuildConfig
 import com.wliky.melody.core.common.AppError
 import com.wliky.melody.core.datastore.SettingsRepository
 import com.wliky.melody.core.model.ApiMode
+import com.wliky.melody.core.model.Comment
+import com.wliky.melody.core.model.CommentPage
+import com.wliky.melody.core.model.CommentSort
 import com.wliky.melody.core.model.PlaybackEvent
 import com.wliky.melody.core.network.ApiClient
 import com.wliky.melody.core.network.MelodyJson
@@ -13,6 +16,10 @@ import com.wliky.melody.core.network.str
 import com.wliky.melody.core.security.SecureSessionStore
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -124,6 +131,69 @@ class ApiServerNeteaseDataSource @Inject constructor(
             if (!ok) allSucceeded = false
         }
         return allSucceeded
+    }
+
+    /**
+     * 歌曲评论（v0.3.0-preview.3+）：只读，无副作用。
+     *
+     * api-enhanced 的 `/comment/music` 实际代理的是 `weapi /api/v1/resource/comments/R_SO_4_${id}`，
+     * **只支持 `limit / offset / beforeTime` 三个参数**（无 sortType / pageNo）。
+     * 接口固定按发布时间倒序返回，没有「热门」维度 —— 所以这里的 `sort` 参数
+     * 只在 Mock 数据源和 UI 层有意义，自建服务模式下两者等价。
+     */
+    override suspend fun songComments(
+        songId: String,
+        sort: CommentSort,
+        cursor: Long,
+        limit: Int,
+    ): CommentPage {
+        if (songId.isBlank()) return CommentPage.EMPTY
+        val path = requirePath(NeteaseEndpoint.COMMENT_MUSIC.serverPath, NeteaseEndpoint.COMMENT_MUSIC.name)
+        val safeLimit = limit.coerceAtLeast(1)
+        val offset = cursor.toInt().coerceAtLeast(0)
+        val params = mutableMapOf(
+            "id" to songId,
+            "limit" to safeLimit.toString(),
+            "offset" to offset.toString(),
+            "beforeTime" to "0", // 0 = 最新的 N 条评论
+        )
+
+        session.cookie().takeIf { it.isNotBlank() }?.let { params["cookie"] = it }
+
+        val url = baseUrl() + path
+        val element = withContext(Dispatchers.IO) {
+            try {
+                apiClient.get(url, params, defaultHeaders())
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                throw AppError.Network("获取评论失败：${t.message ?: "网络异常"}", t)
+            }
+        }.let { response ->
+            // 评论接口默认需要登录态；未登录时服务端返回 HTTP 301 / 462 / -462。
+            if (response.code == 401 || response.code == 403 || response.code == 301) {
+                throw AppError.Unauthorized()
+            }
+            response.parseBody(url)
+        }
+
+        val obj = element.objOrNull() ?: return CommentPage.EMPTY
+        val data = obj.obj("data") ?: return CommentPage.EMPTY
+        val commentsArray = data.arr("comments") ?: return CommentPage.EMPTY
+        val items = parseCommentList(commentsArray)
+        val total = data.int("totalCount") ?: data.int("total") ?: 0
+        val hasMore = items.size >= safeLimit
+        val nextCursor = (offset + items.size).toLong()
+        return CommentPage(items = items, cursor = nextCursor, hasMore = hasMore, total = total)
+    }
+
+    private fun parseCommentList(array: JsonArray): List<Comment> {
+        val list = runCatching {
+            MelodyJson.decodeFromJsonElement(
+                ListSerializer(com.wliky.melody.data.netease.dto.CommentDto.serializer()),
+                array,
+            )
+        }.getOrNull() ?: return emptyList()
+        return list.mapNotNull { dto -> dto.toDomain() }
     }
 
     private suspend fun baseUrl(): String {

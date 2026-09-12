@@ -6,6 +6,7 @@ import com.wliky.melody.core.network.boolean
 import com.wliky.melody.core.network.int
 import com.wliky.melody.core.network.obj
 import com.wliky.melody.core.network.str
+import com.wliky.melody.data.netease.dto.CommentDto
 import com.wliky.melody.data.netease.dto.PlaylistDto
 import com.wliky.melody.data.netease.dto.SongDto
 import com.wliky.melody.data.netease.dto.SongUrlDto
@@ -167,6 +168,40 @@ class NeteaseDtoParsingTest {
         assertEquals("MUSIC_U=xxx", ok.str("cookie"))
     }
 
+    @Test
+    fun `评论接口：嵌套 user 优先、顶层 fallback、缺 id 被丢弃`() {
+        val array = MelodyJson.parseToJsonElement(COMMENT_LIST_RESPONSE) as JsonArray
+        val dtos = MelodyJson.decodeFromJsonElement(ListSerializer(CommentDto.serializer()), array)
+        val items = dtos.mapNotNull { it.toDomain() }
+
+        assertEquals(3, items.size)
+
+        val first = items[0]
+        assertEquals("123", first.id)
+        assertEquals("99", first.userId)
+        assertEquals("网易小号", first.nickname)
+        assertEquals("https://a/1.jpg", first.avatarUrl)
+        assertEquals("好听", first.content)
+        assertEquals(1_710_000_000L, first.publishTimeSec)
+        assertEquals(12, first.likedCount)
+        assertTrue(first.liked)
+        assertEquals(3, first.replyCount)
+        assertEquals("上海", first.ipLabel)
+
+        val second = items[1]
+        assertEquals("124", second.id)
+        assertEquals("100", second.userId)
+        assertEquals("直配字段用户", second.nickname)
+        assertFalse(second.liked)
+        assertNull(second.ipLabel)
+
+        val third = items[2]
+        assertEquals("abc", third.id)
+        assertEquals("id 是字符串也行", third.content)
+        assertEquals(0L, third.publishTimeSec)
+        assertEquals("匿名用户", third.nickname)
+    }
+
     private companion object {
         const val SEARCH_RESPONSE = """
         {
@@ -263,6 +298,39 @@ class NeteaseDtoParsingTest {
           "tlyric": {"version": 1, "lyric": "[00:01.00]你好"},
           "code": 200
         }
+        """
+
+        const val COMMENT_LIST_RESPONSE = """
+        [
+          {
+            "commentId": 123,
+            "user": {"userId": 99, "nickname": "网易小号", "avatarUrl": "https://a/1.jpg"},
+            "content": "好听",
+            "time": 1710000000000,
+            "likedCount": 12,
+            "liked": 1,
+            "total": 3,
+            "ipLabel": {"location": "上海", "ip": "1.2.3.4"}
+          },
+          {
+            "commentId": 124,
+            "userId": 100,
+            "nickname": "直配字段用户",
+            "content": "副歌太好了",
+            "time": 1710000100000,
+            "likedCount": 0,
+            "liked": 0
+          },
+          {
+            "commentId": "abc",
+            "content": "id 是字符串也行",
+            "time": 0
+          },
+          {
+            "user": {"userId": 200, "nickname": "匿名"},
+            "content": "没 id 应该丢"
+          }
+        ]
         """
     }
 }

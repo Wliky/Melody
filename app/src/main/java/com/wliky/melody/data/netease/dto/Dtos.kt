@@ -2,6 +2,7 @@ package com.wliky.melody.data.netease.dto
 
 import com.wliky.melody.core.model.Album
 import com.wliky.melody.core.model.Artist
+import com.wliky.melody.core.model.Comment
 import com.wliky.melody.core.model.Playlist
 import com.wliky.melody.core.model.Song
 import com.wliky.melody.core.model.UserProfile
@@ -123,6 +124,37 @@ data class LyricPayloadDto(
     val tlyric: LyricDto? = null,
 )
 
+@Serializable
+data class CommentUserDto(
+    @Serializable(with = FlexibleStringSerializer::class) val userId: String? = null,
+    val nickname: String? = null,
+    val avatarUrl: String? = null,
+)
+
+@Serializable
+data class CommentDto(
+    @Serializable(with = FlexibleStringSerializer::class) val commentId: String? = null,
+    @Serializable(with = FlexibleStringSerializer::class) val id: String? = null,
+    val user: CommentUserDto? = null,
+    @Serializable(with = FlexibleStringSerializer::class) val userId: String? = null,
+    val nickname: String? = null,
+    val avatarUrl: String? = null,
+    val content: String? = null,
+    @Serializable(with = FlexibleLongSerializer::class) val time: Long? = null,
+    @Serializable(with = FlexibleLongSerializer::class) val publishTime: Long? = null,
+    @Serializable(with = FlexibleIntSerializer::class) val likedCount: Int? = null,
+    @Serializable(with = FlexibleIntSerializer::class) val liked: Int? = null,
+    @Serializable(with = FlexibleIntSerializer::class) val total: Int? = null,
+    /** 「IP 属地」标签，2023 年后接口新增的字段；值通常是 `{ "location": "上海", "ip": "..." }`。 */
+    val ipLabel: IpLabelDto? = null,
+)
+
+@Serializable
+data class IpLabelDto(
+    val location: String? = null,
+    val ip: String? = null,
+)
+
 // ---------------------------------------------------------------------------
 // DTO -> Domain
 // ---------------------------------------------------------------------------
@@ -179,3 +211,21 @@ fun ProfileDto.toDomain(): UserProfile = UserProfile(
     level = level ?: 0,
     listenSongs = listenSongs ?: 0L,
 )
+
+fun CommentDto.toDomain(): Comment? {
+    val resolvedId = (commentId ?: id).orEmpty()
+    if (resolvedId.isBlank()) return null
+    val u = user
+    return Comment(
+        id = resolvedId,
+        userId = u?.userId ?: this.userId.orEmpty(),
+        nickname = u?.nickname ?: this.nickname.orEmpty().ifBlank { "匿名用户" },
+        avatarUrl = u?.avatarUrl ?: this.avatarUrl,
+        content = content.orEmpty(),
+        publishTimeSec = (time ?: publishTime ?: 0L) / 1000L,
+        likedCount = likedCount ?: 0,
+        liked = (liked ?: 0) == 1,
+        replyCount = total ?: 0,
+        ipLabel = ipLabel?.location?.takeIf { it.isNotBlank() },
+    )
+}
