@@ -32,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,6 +72,13 @@ fun ProfileScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val loggedIn by viewModel.loggedIn.collectAsStateWithLifecycle()
     val requiresLogin by viewModel.requiresLogin.collectAsStateWithLifecycle()
+
+    // 登录态从「未登录」切到「已登录」时（例如从登录页返回），重新拉取用户数据。
+    // 否则 ProfileViewModel 在首次进入页面时已经 init 过（当时未登录），
+    // 登录成功后 pop 回来不会重新 init，profile / 歌单 / 足迹都是空的。
+    LaunchedEffect(loggedIn) {
+        if (loggedIn) viewModel.refresh()
+    }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),

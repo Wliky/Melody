@@ -233,36 +233,14 @@ abstract class BaseNeteaseDataSource(
         }
         session.saveSession(normalized, "")
 
-        // 登录成功与否，**只看 Cookie 里有没有有效的 MUSIC_U**（见 CookieParser.hasMusicU）。
-        // 用户信息（昵称 / 头像 / uid）是另一回事：它异步、可降级地补拉，
-        // 拉不到也不清会话、不报「登录失败」—— 只要 MUSIC_U 还在，就算已登录。
+        // 登录成功与否，**只看 Cookie 里有没有有效的 MUSIC_U**。
+        // MUSIC_U 落盘的那一刻就已完成登录 —— 用户信息（昵称 / 头像 / uid）是展示信息，
+        // 由上层（ProfileViewModel 进页面时）异步补拉，**绝不在登录这一步同步等待**。
         //
-        // 之前的实现把「拉 profile」当成了登录成功的硬门槛，结果网络抖动 / 风控 403 /
-        // 接口拿不到 profile 时都会误报「暂时无法获取用户信息」，甚至误清会话。
-        // 现在只在服务端明确返回「未登录（301）」时才清会话，其余一律保留。
-        val profile = try {
-            fetchProfile()
-        } catch (cancellation: CancellationException) {
-            throw cancellation
-        } catch (t: Throwable) {
-            val error = t.toAppError()
-            if (error is AppError.Unauthorized) {
-                // 只有服务端明确说「未登录 / 登录态失效」才清掉会话。
-                session.clear()
-                throw AppError.Unauthorized("这份 Cookie 已失效，请重新登录")
-            }
-            // 网络 / 风控 / 解析抖动：保留会话，静默降级为「已登录但暂无用户信息」，
-            // 由上层在后续进入首页时再后台补拉。
-            return null
-        }
-
-        if (profile == null) {
-            // 凭据没问题但暂时取不到用户信息：同样静默降级，不清会话。
-            return null
-        }
-        session.updateUserId(profile.userId)
-        if (!session.hasAuthToken()) session.saveSession(normalized, profile.userId)
-        return profile
+        // 之前的实现把「同步 fetchProfile」塞在登录链路里，导致登录要等一次最长 20s 的
+        // 账号接口请求（被风控时必超时），表现就是「Cookie 登录一直转圈」。
+        // 现在登录瞬间完成；profile 拉不到也不清会话、不影响已登录状态。
+        return null
     }
 
     override suspend fun sendCaptcha(phone: String): Boolean {

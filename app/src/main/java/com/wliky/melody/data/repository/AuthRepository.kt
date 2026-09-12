@@ -4,6 +4,7 @@ import com.wliky.melody.core.common.AppError
 import com.wliky.melody.core.common.AppResult
 import com.wliky.melody.core.common.DispatchersProvider
 import com.wliky.melody.core.common.appRunCatching
+import com.wliky.melody.core.common.toAppError
 import com.wliky.melody.core.model.LoginPollResult
 import com.wliky.melody.core.model.QrCodeInfo
 import com.wliky.melody.core.model.UserProfile
@@ -12,6 +13,7 @@ import com.wliky.melody.data.netease.NeteaseProviderResolver
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -112,8 +114,12 @@ class AuthRepository @Inject constructor(
     /**
      * 拉取用户信息。
      *
-     * 这里同时承担「会话体检」的职责：拿着凭据却拉不到 profile，说明这份登录态已经失效，
-     * 直接清掉并让 UI 回到未登录状态，而不是留着一个"看起来已登录、实际什么都拉不到"的假象。
+     * **登录态的唯一判据是会话里有没有 MUSIC_U**（见 [SecureSessionStore.loggedIn]），
+     * 与这里能否拉到 profile 无关。profile 只是「昵称 / 头像 / uid」这些展示信息：
+     * 拉不到（网络抖动 / 风控）绝不等同于「未登录」，**绝不能据此清会话**。
+     *
+     * 只有服务端明确返回「未登录」（fetchProfile 抛 [AppError.Unauthorized]）才清会话。
+     * 否则一律保留会话、保留旧 profile（若有），让 UI 继续显示已登录。
      */
     suspend fun loadProfile(force: Boolean = false): AppResult<UserProfile?> {
         if (!force) {
@@ -124,14 +130,26 @@ class AuthRepository @Inject constructor(
             return AppResult.Success(null)
         }
         return appRunCatching {
-            val profile = providers.current().fetchProfile()
-            if (profile == null) {
-                invalidateSession()
-                null
-            } else {
-                _profile.value = profile
-                profile
+            val profile = try {
+                providers.current().fetchProfile()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (t: Throwable) {
+                val error = t.toAppError()
+                if (error is AppError.Unauthorized) {
+                    // 服务端明确说「未登录」才清会话。
+                    invalidateSession()
+                    throw error
+                }
+                // 网络 / 风控 / 解析抖动：保留会话，沿用旧 profile（若有），返回 null 表示暂无信息。
+                _profile.value
             }
+            if (profile != null) {
+                _profile.value = profile
+                // 顺手把 userId 补进会话，后续「我的歌单 / 收藏 / 足迹」都靠它定位账号。
+                if (profile.userId.isNotBlank()) session.updateUserId(profile.userId)
+            }
+            profile
         }
     }
 
