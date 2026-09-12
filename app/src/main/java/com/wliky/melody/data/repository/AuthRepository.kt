@@ -60,6 +60,17 @@ class AuthRepository @Inject constructor(
     }
 
     /**
+     * 用浏览器里已有的登录凭据（Cookie 中的 `MUSIC_U`）登录。
+     *
+     * 扫码链路被风控拦截时这是最可靠的通路：不触发登录验证，直接复用已有登录态。
+     */
+    suspend fun loginWithCookie(rawCookie: String): AppResult<UserProfile?> = appRunCatching {
+        val profile = providers.current().loginWithCookie(rawCookie)
+        _profile.value = profile
+        profile
+    }
+
+    /**
      * 轮询登录状态。成功（803）后立即拉取用户信息，建立 Session。
      */
     suspend fun pollLogin(key: String): AppResult<LoginPollResult> = appRunCatching {

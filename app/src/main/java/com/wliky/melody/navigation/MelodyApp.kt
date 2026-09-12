@@ -11,8 +11,10 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
@@ -68,15 +70,13 @@ private data class NavEntry(
     val route: String,
     val label: String,
     val icon: ImageVector,
-    /** 手机底栏只保留两个主入口（文档 §4：减少视觉噪音）。 */
-    val showInBottomBar: Boolean,
 )
 
 private val navEntries = listOf(
-    NavEntry(Destinations.HOME, "首页", Icons.Rounded.Home, showInBottomBar = true),
-    NavEntry(Destinations.SEARCH, "搜索", Icons.Rounded.Search, showInBottomBar = false),
-    NavEntry(Destinations.HISTORY, "历史", Icons.Rounded.History, showInBottomBar = false),
-    NavEntry(Destinations.PROFILE, "我的", Icons.Rounded.Person, showInBottomBar = true),
+    NavEntry(Destinations.HOME, "首页", Icons.Rounded.Home),
+    NavEntry(Destinations.SEARCH, "搜索", Icons.Rounded.Search),
+    NavEntry(Destinations.HISTORY, "历史", Icons.Rounded.History),
+    NavEntry(Destinations.PROFILE, "我的", Icons.Rounded.Person),
 )
 
 /** 用 600dp 作为「平板 / 折叠屏展开」的断点，两套布局共用同一份页面实现。 */
@@ -94,13 +94,15 @@ fun MelodyApp() {
     val isWide = rememberIsWideLayout()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // 播放器 ViewModel 挂在 Activity 上，因此所有页面共享同一个播放实例
+    // 播放器 ViewModel 挂在 Activity 上，所有页面共享同一个播放实例
     val playerViewModel: PlayerViewModel = hiltViewModel()
     val snapshot by playerViewModel.snapshot.collectAsStateWithLifecycle()
     val queue by playerViewModel.queue.collectAsStateWithLifecycle()
     val lyric by playerViewModel.lyric.collectAsStateWithLifecycle()
     val showFullPlayer by playerViewModel.showFullPlayer.collectAsStateWithLifecycle()
     val message by playerViewModel.message.collectAsStateWithLifecycle()
+
+    val nowPlayingId = snapshot.nowPlaying?.songId
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -114,7 +116,7 @@ fun MelodyApp() {
     Box(modifier = Modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxSize()) {
             if (isWide) {
-                NavigationRail {
+                NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
                     navEntries.forEach { entry ->
                         NavigationRailItem(
                             selected = currentRoute == entry.route,
@@ -128,6 +130,7 @@ fun MelodyApp() {
 
             Column(modifier = Modifier.weight(1f)) {
                 Scaffold(
+                    containerColor = MaterialTheme.colorScheme.background,
                     snackbarHost = { SnackbarHost(snackbarHostState) },
                     bottomBar = {
                         if (!isWide) {
@@ -138,13 +141,16 @@ fun MelodyApp() {
                                     onNext = playerViewModel::next,
                                     onExpand = playerViewModel::openFullPlayer,
                                 )
-                                NavigationBar {
-                                    navEntries.filter { it.showInBottomBar }.forEach { entry ->
+                                NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                                    navEntries.forEach { entry ->
                                         NavigationBarItem(
                                             selected = currentRoute == entry.route,
                                             onClick = { navController.switchTab(entry.route) },
                                             icon = { Icon(entry.icon, contentDescription = entry.label) },
                                             label = { Text(entry.label) },
+                                            colors = NavigationBarItemDefaults.colors(
+                                                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                            ),
                                         )
                                     }
                                 }
@@ -164,6 +170,7 @@ fun MelodyApp() {
                             HomeScreen(
                                 viewModel = viewModel,
                                 isWide = isWide,
+                                nowPlayingId = nowPlayingId,
                                 onOpenSearch = { navController.navigate(Destinations.SEARCH) },
                                 onOpenPlaylist = { navController.navigate(Destinations.playlist(it)) },
                                 onOpenLogin = { navController.navigate(Destinations.LOGIN) },
@@ -176,6 +183,7 @@ fun MelodyApp() {
                             SearchScreen(
                                 viewModel = viewModel,
                                 isWide = isWide,
+                                nowPlayingId = nowPlayingId,
                                 onOpenPlaylist = { navController.navigate(Destinations.playlist(it)) },
                                 onPlay = playerViewModel::play,
                             )
@@ -223,6 +231,7 @@ fun MelodyApp() {
                             val viewModel: PlaylistViewModel = hiltViewModel()
                             PlaylistScreen(
                                 viewModel = viewModel,
+                                nowPlayingId = nowPlayingId,
                                 onPlay = playerViewModel::play,
                             )
                         }

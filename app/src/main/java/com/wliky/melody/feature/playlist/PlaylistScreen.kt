@@ -15,22 +15,27 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wliky.melody.core.designsystem.component.EmptyState
 import com.wliky.melody.core.designsystem.component.ErrorState
 import com.wliky.melody.core.designsystem.component.LoadingBox
+import com.wliky.melody.core.designsystem.component.SectionHeader
 import com.wliky.melody.core.designsystem.component.SongRow
 import com.wliky.melody.core.designsystem.format.formatCount
 import com.wliky.melody.core.model.Song
 import com.wliky.melody.feature.common.PlaylistHeader
 
-/** 歌单 / 榜单详情。 */
+/** 歌单 / 榜单详情：封面头图 + 曲目列表，当前播放的那首会高亮。 */
 @Composable
 fun PlaylistScreen(
     viewModel: PlaylistViewModel,
     onPlay: (List<Song>, Int) -> Unit,
     modifier: Modifier = Modifier,
+    nowPlayingId: String? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     when {
-        state.loading -> Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        state.loading -> Box(
+            modifier = modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
             LoadingBox()
         }
 
@@ -42,7 +47,7 @@ fun PlaylistScreen(
 
         else -> LazyColumn(
             modifier = modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 120.dp),
+            contentPadding = PaddingValues(bottom = 140.dp),
         ) {
             item {
                 PlaylistHeader(
@@ -52,7 +57,9 @@ fun PlaylistScreen(
                     metaText = buildString {
                         state.playlist?.creator?.takeIf { it.isNotBlank() }?.let { append(it).append(" · ") }
                         append("${state.songs.size} 首歌")
-                        state.playlist?.playCount?.takeIf { it > 0 }?.let { append(" · ").append(formatCount(it)).append(" 次播放") }
+                        state.playlist?.playCount?.takeIf { it > 0 }?.let {
+                            append(" · ").append(formatCount(it)).append(" 次播放")
+                        }
                     },
                     description = state.playlist?.description,
                     onClickPlayAll = { if (state.songs.isNotEmpty()) onPlay(state.songs, 0) },
@@ -63,8 +70,17 @@ fun PlaylistScreen(
             if (state.songs.isEmpty()) {
                 item { EmptyState(title = "这个歌单还没有可播放的歌曲") }
             } else {
-                itemsIndexed(state.songs, key = { index, song -> "$index-${song.id}" }) { index, song ->
-                    SongRow(song = song, onClick = { onPlay(state.songs, index) })
+                item { SectionHeader(title = "曲目", subtitle = "共 ${state.songs.size} 首") }
+                itemsIndexed(
+                    state.songs,
+                    key = { index, song -> "$index-${song.id}" },
+                ) { index, song ->
+                    SongRow(
+                        song = song,
+                        index = index,
+                        playing = song.id == nowPlayingId,
+                        onClick = { onPlay(state.songs, index) },
+                    )
                 }
             }
         }

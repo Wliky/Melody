@@ -29,8 +29,14 @@ data class AppSettings(
     /** 仅 [ApiMode.API_SERVER] 使用，例如 http://192.168.1.10:3000 */
     val apiBaseUrl: String = "",
     val audioQuality: AudioQuality = AudioQuality.EXHIGH,
-    /** 播放记录上报（实验性，默认关闭）。见文档 §9 / §16。 */
-    val reportPlayback: Boolean = false,
+    /**
+     * 听歌记录自动同步。
+     *
+     * 默认开启：播放行为无需任何手动操作即自动入队并提交（见 SyncManager）。
+     * 关闭它只会停止「上报」，本地播放历史始终照常记录。
+     * 直连模式下官方没有开放给第三方的上报通道，因此实际只有自建 API 服务模式会真正上传。
+     */
+    val reportPlayback: Boolean = true,
 )
 
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "melody_settings")
@@ -60,7 +66,7 @@ class SettingsRepository @Inject constructor(
             apiMode = prefs[Keys.apiMode].toEnum(ApiMode.DIRECT),
             apiBaseUrl = prefs[Keys.apiBaseUrl].orEmpty(),
             audioQuality = prefs[Keys.audioQuality].toEnum(AudioQuality.EXHIGH),
-            reportPlayback = prefs[Keys.reportPlayback] ?: false,
+            reportPlayback = prefs[Keys.reportPlayback] ?: true,
         )
     }
 

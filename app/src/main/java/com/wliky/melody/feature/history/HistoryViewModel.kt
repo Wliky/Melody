@@ -5,10 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.wliky.melody.core.common.AppError
 import com.wliky.melody.core.common.fold
 import com.wliky.melody.core.datastore.SettingsRepository
+import com.wliky.melody.core.model.ApiMode
 import com.wliky.melody.core.model.Song
 import com.wliky.melody.data.repository.HistoryRepository
-import com.wliky.melody.data.repository.SyncManager
-import com.wliky.melody.data.repository.SyncReport
 import com.wliky.melody.data.repository.SyncRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -22,28 +21,34 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/**
+ * 播放历史（文档 §6 / §9）。
+ *
+ * 同步是全自动的（见 SyncManager），这里**不提供任何手动同步入口**，
+ * 只如实展示后台队列的状态，让用户知道「已经自动处理到哪了」。
+ */
 @HiltViewModel
 class HistoryViewModel @Inject constructor(
     private val historyRepository: HistoryRepository,
-    private val syncRepository: SyncRepository,
-    private val syncManager: SyncManager,
+    syncRepository: SyncRepository,
     settingsRepository: SettingsRepository,
 ) : ViewModel() {
 
-    /** 同步队列计数，用于把「待同步 / 已失败」说清楚。 */
+    /** 自动同步队列的快照。 */
     data class SyncSummary(
         val pending: Int = 0,
         val failed: Int = 0,
         val skipped: Int = 0,
         val total: Int = 0,
-    )
+    ) {
+        /** 没有积压也没有失败，说明一切都已经自动处理完了。 */
+        val settled: Boolean get() = pending == 0 && failed == 0
+    }
 
     data class UiState(
-        val syncing: Boolean = false,
         val remoteSongs: List<Song> = emptyList(),
         val remoteError: AppError? = null,
         val loadingRemote: Boolean = false,
-        val lastReport: SyncReport? = null,
     )
 
     val localHistory: StateFlow<List<Song>> = historyRepository.localHistory
@@ -58,10 +63,15 @@ class HistoryViewModel @Inject constructor(
         SyncSummary(pending = pending, failed = failed, skipped = skipped, total = total)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), SyncSummary())
 
-    /** 用户是否开启了播放记录上报（默认关闭）。 */
+    /** 当前模式是否真的存在自动上报通道（只有自建 API 服务才有）。 */
+    val autoSyncActive: StateFlow<Boolean> = settingsRepository.settings
+        .map { it.reportPlayback && it.apiMode == ApiMode.API_SERVER }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), false)
+
+    /** 上报总开关，默认开启。关掉只停止上传，本地记录不受影响。 */
     val reportEnabled: StateFlow<Boolean> = settingsRepository.settings
         .map { it.reportPlayback }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), false)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), true)
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -80,20 +90,8 @@ class HistoryViewModel @Inject constructor(
         }
     }
 
-    fun syncNow() {
-        viewModelScope.launch {
-            _state.update { it.copy(syncing = true) }
-            val report = syncManager.syncNow()
-            _state.update { it.copy(syncing = false, lastReport = report) }
-        }
-    }
-
     fun clearLocal() {
         viewModelScope.launch { historyRepository.clearLocal() }
-    }
-
-    fun consumeReport() {
-        _state.update { it.copy(lastReport = null) }
     }
 
     private companion object {

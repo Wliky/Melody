@@ -158,6 +158,14 @@ data class LoginPollResult(
     val isWaitingScan: Boolean get() = code == 801
     val isWaitingConfirm: Boolean get() = code == 802
     val isSuccess: Boolean get() = code == 803
+
+    /**
+     * 8821 = 触发登录风控。
+     *
+     * 这时继续轮询没有意义（扫多少次都会被拒），必须停下来引导用户换一条路
+     * —— 通常是改用 Cookie 登录。
+     */
+    val isRiskControlled: Boolean get() = code == 8821
 }
 
 data class SongUrl(

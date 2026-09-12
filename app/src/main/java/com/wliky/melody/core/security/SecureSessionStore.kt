@@ -59,8 +59,29 @@ class SecureSessionStore @Inject constructor(
     }
 
     fun clear() {
-        prefs.edit().clear().apply()
+        // 只清登录凭据，保留 deviceId：退出登录后设备标识应当保持稳定，
+        // 否则每次重新登录都像一台新设备，反而更容易被风控。
+        prefs.edit()
+            .remove(KEY_COOKIE)
+            .remove(KEY_USER_ID)
+            .apply()
         _loggedIn.value = false
+    }
+
+    /**
+     * 稳定的匿名设备标识。
+     *
+     * 网易的 eapi 链路会校验请求里的 deviceId，同一台设备频繁更换会被判定为异常环境；
+     * 因此这里生成一次后持久化，卸载重装才会变化。它不是硬件标识，也不含任何用户信息。
+     */
+    fun deviceId(): String {
+        prefs.getString(KEY_DEVICE_ID, null)?.takeIf { it.isNotBlank() }?.let { return it }
+        val generated = buildString(DEVICE_ID_LENGTH) {
+            val alphabet = "0123456789ABCDEF"
+            repeat(DEVICE_ID_LENGTH) { append(alphabet.random()) }
+        }
+        prefs.edit().putString(KEY_DEVICE_ID, generated).apply()
+        return generated
     }
 
     private fun readCookie(): String = runCatching {
@@ -71,5 +92,7 @@ class SecureSessionStore @Inject constructor(
         const val FILE_NAME = "melody_secure_session"
         const val KEY_COOKIE = "cookie"
         const val KEY_USER_ID = "user_id"
+        const val KEY_DEVICE_ID = "device_id"
+        const val DEVICE_ID_LENGTH = 16
     }
 }

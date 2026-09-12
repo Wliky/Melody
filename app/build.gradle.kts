@@ -117,6 +117,7 @@ dependencies {
 
     // ---- 图片 ----
     implementation(libs.coil.compose)
+    implementation(libs.androidx.palette)
 
     // ---- 播放器 ----
     implementation(libs.androidx.media3.exoplayer)

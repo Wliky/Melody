@@ -21,6 +21,7 @@ import com.wliky.melody.core.model.Song
 import com.wliky.melody.core.model.SongUrl
 import com.wliky.melody.core.model.UserProfile
 import com.wliky.melody.core.network.ApiClient
+import com.wliky.melody.core.network.CookieParser
 import com.wliky.melody.core.network.MelodyJson
 import com.wliky.melody.core.network.arr
 import com.wliky.melody.core.network.arrayOrNull
@@ -131,11 +132,18 @@ abstract class BaseNeteaseDataSource(
     // ------------------------------------------------------------------ 登录
 
     override suspend fun requestQrCode(): QrCodeInfo {
-        val response = call(NeteaseEndpoint.QR_KEY, jsonObjectOf("type" to 1.toJsonPrimitive())).objOrNull()
-            ?: throw AppError.Server("无法获取登录二维码，请稍后重试")
-        val unikey = response.str("unikey")
-            ?: response.obj("data").str("unikey")
-            ?: throw AppError.Server("登录二维码返回异常，接口可能已变更")
+        val response = call(NeteaseEndpoint.QR_KEY, jsonObjectOf("type" to 1.toJsonPrimitive()))
+            .objOrNull()
+            ?: throw AppError.Server(
+                "登录二维码返回异常：服务端没有返回 JSON，请求可能被拦截。" +
+                    "可稍后重试，或改用「Cookie 登录」",
+            )
+
+        // 不同线路的返回结构不一致：有的直接给 unikey，有的包一层 data。
+        val unikey = response.str("unikey")?.takeIf { it.isNotBlank() }
+            ?: response.obj("data")?.str("unikey")?.takeIf { it.isNotBlank() }
+            ?: throw AppError.Server(describeQrFailure(response))
+
         val officialUrl = if (mode != ApiMode.DIRECT) {
             runCatching {
                 call(
@@ -144,15 +152,43 @@ abstract class BaseNeteaseDataSource(
                         "key" to JsonPrimitive(unikey),
                         "qrimg" to JsonPrimitive(false),
                     ),
-                ).objOrNull()?.obj("data").str("qrurl")
+                ).objOrNull()?.obj("data")?.str("qrurl")
             }.getOrNull()
         } else {
             null
         }
-        return QrCodeInfo(
-            key = unikey,
-            content = officialUrl ?: "https://music.163.com/login?codekey=$unikey",
-        )
+
+        return QrCodeInfo(key = unikey, content = officialUrl ?: qrContent(unikey, response))
+    }
+
+    /**
+     * 二维码内容。
+     *
+     * 新版登录链路建议带 `chainId`：服务端返回了就用服务端的，否则用本机稳定的设备标识，
+     * 保证同一台设备每次扫码的链路一致（随机值反而更容易被判为异常环境）。
+     */
+    private fun qrContent(unikey: String, response: JsonObject): String {
+        val chainId = response.str("chainId")?.takeIf { it.isNotBlank() }
+            ?: session.deviceId()
+        return "$QR_LOGIN_BASE?codekey=$unikey&chainId=$chainId"
+    }
+
+    /** 把服务端返回的错误码翻译成用户能看懂、并且知道下一步该做什么的话。 */
+    private fun describeQrFailure(response: JsonObject): String {
+        val code = response.int("code")
+        val message = response.str("message") ?: response.str("msg")
+        return when {
+            code == 403 ->
+                "登录接口拒绝了本次请求（403），通常是账号被临时风控。" +
+                    "请稍等几分钟再试，或直接改用「Cookie 登录」"
+
+            code == 8821 ->
+                "触发了登录风控（8821），请稍后再试，或改用「Cookie 登录」"
+
+            !message.isNullOrBlank() -> "登录二维码返回异常：$message（可改用「Cookie 登录」）"
+
+            else -> "登录二维码返回异常，接口可能已变更（可改用「Cookie 登录」）"
+        }
     }
 
     override suspend fun pollQrLogin(key: String): LoginPollResult {
@@ -164,7 +200,27 @@ abstract class BaseNeteaseDataSource(
         val message = response.str("message") ?: response.str("msg") ?: ""
         // cookie 可能出现在 body，也可能在 Set-Cookie（由传输层写入会话存储）
         response.str("cookie")?.takeIf { it.isNotBlank() }?.let { session.updateCookie(it) }
-        return LoginPollResult(code, message)
+        return LoginPollResult(
+            code = code,
+            message = if (code == 8821) "登录环境异常，请稍后重试或改用 Cookie 登录" else message,
+        )
+    }
+
+    override suspend fun loginWithCookie(rawCookie: String): UserProfile? {
+        val normalized = CookieParser.normalize(rawCookie)
+            ?: throw AppError.Parse("Cookie 格式不正确，请粘贴包含 MUSIC_U 的完整内容")
+        if (!CookieParser.looksUsable(normalized)) {
+            throw AppError.Parse("没有识别到有效的 MUSIC_U，请确认复制的是登录后的 Cookie")
+        }
+        session.saveSession(normalized, "")
+        val profile = runCatching { fetchProfile() }.getOrNull()
+        if (profile == null) {
+            session.clear()
+            throw AppError.Unauthorized("这份 Cookie 已失效，请重新从浏览器复制一份")
+        }
+        // fetchProfile 期间可能合并了新的 Set-Cookie，这里把它和 userId 一起落盘
+        session.saveSession(session.cookie().ifBlank { normalized }, profile.id)
+        return profile
     }
 
     override suspend fun fetchProfile(): UserProfile? {
@@ -475,3 +531,6 @@ abstract class BaseNeteaseDataSource(
         return path
     }
 }
+
+/** 扫码登录页地址；把 unikey 拼在 codekey 上即可被官方 App 识别。 */
+private const val QR_LOGIN_BASE = "https://music.163.com/login"

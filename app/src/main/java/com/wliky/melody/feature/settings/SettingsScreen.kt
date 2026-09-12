@@ -13,8 +13,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CleaningServices
+import androidx.compose.material.icons.rounded.CloudSync
+import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Logout
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -31,18 +36,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wliky.melody.BuildConfig
-import com.wliky.melody.core.datastore.AppSettings
 import com.wliky.melody.core.datastore.ThemeMode
-import com.wliky.melody.core.designsystem.component.SectionHeader
 import com.wliky.melody.core.designsystem.component.SettingItem
+import com.wliky.melody.core.designsystem.component.SettingsGroup
 import com.wliky.melody.core.model.ApiMode
 import com.wliky.melody.core.model.AudioQuality
 
 /**
- * 设置（文档 §5 / §6 / §16）。
- * 数据源可切换、音质可选、主题可调，隐私与合规说明直接摆在界面里。
+ * 设置。所有选项都收在分组卡片里，不再是一长条分割线列表。
+ *
+ * 关于同步：这里是**唯一**能看到「自动同步」开关的地方，而且没有任何手动触发按钮
+ * —— 播放行为一产生就会自动入队并提交（见 SyncManager）。
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
@@ -60,197 +65,219 @@ fun SettingsScreen(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 120.dp),
+        contentPadding = PaddingValues(bottom = 140.dp),
     ) {
-        item { SectionHeader(title = "数据源", subtitle = "接口变化时可随时切换，不必等 App 更新") }
-
         item {
-            ApiModeSection(
-                settings = settings,
-                onSelect = viewModel::setApiMode,
-                onBaseUrlChange = viewModel::setApiBaseUrl,
-            )
-        }
-
-        item { HorizontalDivider() }
-        item { SectionHeader(title = "播放") }
-
-        item {
-            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                Text(text = "音质", style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    text = "实际可用音质取决于你的账号权限与歌曲本身",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AudioQuality.entries.forEach { quality ->
-                        FilterChip(
-                            selected = settings.audioQuality == quality,
-                            onClick = { viewModel.setAudioQuality(quality) },
-                            label = { Text(quality.label) },
-                        )
-                    }
-                }
-            }
-        }
-
-        item { HorizontalDivider() }
-        item { SectionHeader(title = "外观") }
-
-        item {
-            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                Text(text = "主题", style = MaterialTheme.typography.bodyLarge)
-                Spacer(Modifier.height(8.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ThemeMode.entries.forEach { mode ->
-                        FilterChip(
-                            selected = settings.themeMode == mode,
-                            onClick = { viewModel.setThemeMode(mode) },
-                            label = { Text(mode.label) },
-                        )
-                    }
-                }
-            }
-        }
-
-        item {
-            SettingItem(
-                title = "动态取色",
-                subtitle = "Android 12+ 从壁纸提取主色，关闭则使用 Melody 品牌色",
-                onClick = { viewModel.setDynamicColor(!settings.dynamicColor) },
-                trailing = {
-                    Switch(checked = settings.dynamicColor, onCheckedChange = viewModel::setDynamicColor)
-                },
-            )
-        }
-
-        item { HorizontalDivider() }
-        item { SectionHeader(title = "数据与隐私") }
-
-        item {
-            SettingItem(
-                title = "上报播放记录（实验性）",
-                subtitle = when {
-                    !reportSupported -> "当前数据源没有提供明确可控的上报接口，因此该开关不可用"
-                    settings.reportPlayback -> "已开启：网络恢复后会批量提交播放记录"
-                    else -> "默认关闭。播放记录只保存在本机"
-                },
-                onClick = { if (reportSupported) viewModel.setReportPlayback(!settings.reportPlayback) },
-                trailing = {
-                    Switch(
-                        checked = settings.reportPlayback && reportSupported,
-                        enabled = reportSupported,
-                        onCheckedChange = { viewModel.setReportPlayback(it) },
+            SettingsGroup(title = "数据源") {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    ChoiceChips(
+                        options = ApiMode.entries.map { it to it.label },
+                        selectedIndex = ApiMode.entries.indexOf(settings.apiMode),
+                        onSelect = { viewModel.setApiMode(ApiMode.entries[it]) },
                     )
-                },
-            )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = settings.apiMode.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (settings.apiMode == ApiMode.API_SERVER) {
+                        Spacer(Modifier.height(14.dp))
+                        BaseUrlField(
+                            current = settings.apiBaseUrl,
+                            onSave = viewModel::setApiBaseUrl,
+                        )
+                    }
+                }
+            }
         }
 
         item {
-            SettingItem(
-                title = "清理缓存",
-                subtitle = "清理歌词等内存缓存（音频文件不做缓存）",
-                onClick = viewModel::clearCaches,
-            )
+            SettingsGroup(title = "播放音质") {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    ChoiceChips(
+                        options = AudioQuality.entries.map { it to it.label },
+                        selectedIndex = AudioQuality.entries.indexOf(settings.audioQuality),
+                        onSelect = { viewModel.setAudioQuality(AudioQuality.entries[it]) },
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = "实际可用音质取决于你的账号权限与歌曲本身",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
 
         item {
-            SettingItem(
-                title = "清空同步队列",
-                subtitle = "删除本地待同步的播放事件",
-                onClick = viewModel::clearSyncQueue,
-            )
+            SettingsGroup(title = "外观") {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    ChoiceChips(
+                        options = ThemeMode.entries.map { it to it.label },
+                        selectedIndex = ThemeMode.entries.indexOf(settings.themeMode),
+                        onSelect = { viewModel.setThemeMode(ThemeMode.entries[it]) },
+                    )
+                }
+                SettingItem(
+                    title = "动态取色",
+                    subtitle = "Android 12+ 从壁纸提取主色；播放页始终跟随专辑封面",
+                    icon = Icons.Rounded.Palette,
+                    onClick = { viewModel.setDynamicColor(!settings.dynamicColor) },
+                    trailing = {
+                        Switch(
+                            checked = settings.dynamicColor,
+                            onCheckedChange = viewModel::setDynamicColor,
+                        )
+                    },
+                )
+            }
+        }
+
+        item {
+            SettingsGroup(title = "数据与隐私") {
+                SettingItem(
+                    title = "自动同步听歌记录",
+                    subtitle = autoSyncDescription(
+                        reportEnabled = settings.reportPlayback,
+                        supported = reportSupported,
+                    ),
+                    icon = Icons.Rounded.CloudSync,
+                    onClick = {
+                        if (reportSupported) viewModel.setReportPlayback(!settings.reportPlayback)
+                    },
+                    trailing = {
+                        Switch(
+                            checked = settings.reportPlayback && reportSupported,
+                            enabled = reportSupported,
+                            onCheckedChange = { if (reportSupported) viewModel.setReportPlayback(it) },
+                        )
+                    },
+                )
+                SettingItem(
+                    title = "清理缓存",
+                    subtitle = "清理歌词等内存缓存（音频文件不做缓存）",
+                    icon = Icons.Rounded.CleaningServices,
+                    onClick = viewModel::clearCaches,
+                )
+                SettingItem(
+                    title = "清空待同步事件",
+                    subtitle = "删除本机尚未提交的播放事件",
+                    icon = Icons.Rounded.DeleteSweep,
+                    onClick = viewModel::clearSyncQueue,
+                )
+            }
         }
 
         if (loggedIn) {
             item {
-                SettingItem(
-                    title = "退出登录",
-                    subtitle = "清除本机保存的登录凭据",
-                    onClick = viewModel::logout,
-                )
+                SettingsGroup(title = "账号") {
+                    SettingItem(
+                        title = "退出登录",
+                        subtitle = "清除本机保存的登录凭据",
+                        icon = Icons.Rounded.Logout,
+                        onClick = viewModel::logout,
+                    )
+                }
             }
         }
 
-        item { HorizontalDivider() }
-        item { SectionHeader(title = "关于") }
+        item {
+            SettingsGroup(title = "关于") {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Melody v${BuildConfig.VERSION_NAME}",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "开源协议：MIT",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = COMPLIANCE_TEXT,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
 
         item {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "Melody v${BuildConfig.VERSION_NAME}",
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = COMPLIANCE_TEXT,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "开源协议：MIT",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.Center,
+            ) {
                 TextButton(onClick = onBack) { Text("返回") }
             }
         }
     }
 }
 
+/**
+ * 「自动同步」的真实状态说明。
+ *
+ * 关键在于如实告知：同步是自动的，但直连模式下官方没有对第三方开放上报通道，
+ * 因此那种情况下只有本地记录。
+ */
+private fun autoSyncDescription(reportEnabled: Boolean, supported: Boolean): String = when {
+    !supported ->
+        "已开启，但当前数据源没有可用的上报通道：播放记录只保存在本机（直连模式属正常情况）"
+
+    reportEnabled -> "已开启：播放后自动提交，无需任何手动操作"
+
+    else -> "已关闭：播放记录仍然照常保存在本机，只是不再上传"
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ApiModeSection(
-    settings: AppSettings,
-    onSelect: (ApiMode) -> Unit,
-    onBaseUrlChange: (String) -> Unit,
+private fun ChoiceChips(
+    options: List<Pair<Any, String>>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
 ) {
-    var baseUrlDraft by remember(settings.apiBaseUrl) { mutableStateOf(settings.apiBaseUrl) }
-
-    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ApiMode.entries.forEach { mode ->
-                FilterChip(
-                    selected = settings.apiMode == mode,
-                    onClick = { onSelect(mode) },
-                    label = { Text(mode.label) },
-                )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = settings.apiMode.description,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        if (settings.apiMode == ApiMode.API_SERVER) {
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = baseUrlDraft,
-                onValueChange = { baseUrlDraft = it },
-                singleLine = true,
-                label = { Text("服务地址") },
-                placeholder = { Text("http://192.168.1.10:3000") },
-                modifier = Modifier.fillMaxWidth(),
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEachIndexed { index, (_, label) ->
+            FilterChip(
+                selected = index == selectedIndex,
+                onClick = { onSelect(index) },
+                label = { Text(label) },
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Spacer(Modifier.width(8.dp))
-                TextButton(onClick = { onBaseUrlChange(baseUrlDraft) }) { Text("保存地址") }
-            }
         }
-        Spacer(Modifier.height(8.dp))
     }
 }
 
+@Composable
+private fun BaseUrlField(current: String, onSave: (String) -> Unit) {
+    var draft by remember(current) { mutableStateOf(current) }
+    Column {
+        OutlinedTextField(
+            value = draft,
+            onValueChange = { draft = it },
+            singleLine = true,
+            label = { Text("服务地址") },
+            placeholder = { Text("http://192.168.1.10:3000") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Spacer(Modifier.width(8.dp))
+            TextButton(
+                onClick = { onSave(draft) },
+                enabled = draft != current,
+            ) { Text("保存地址") }
+        }
+    }
+}
+
+/** 隐私与合规说明：直接摆在界面里，而不是藏在某个网页后面。 */
 private const val COMPLIANCE_TEXT =
     "Melody 是非官方开源第三方客户端，与网易云音乐官方无任何关联。\n" +
         "本应用不破解会员、不绕过 DRM、不提供未授权下载，也不规避任何访问控制；" +

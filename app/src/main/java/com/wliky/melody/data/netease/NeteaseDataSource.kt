@@ -39,6 +39,15 @@ interface NeteaseDataSource {
     // ---- 登录 ----
     suspend fun requestQrCode(): QrCodeInfo
     suspend fun pollQrLogin(key: String): LoginPollResult
+
+    /**
+     * 用已有的登录凭据（Cookie 里的 `MUSIC_U`）建立会话。
+     *
+     * 扫码链路被风控拦截时的兜底通路：用户从浏览器复制一次登录态即可长期使用。
+     * 返回 null 表示当前模式不支持该方式（如演示模式）。
+     */
+    suspend fun loginWithCookie(rawCookie: String): UserProfile?
+
     suspend fun fetchProfile(): UserProfile?
     suspend fun logout()
 

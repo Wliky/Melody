@@ -5,10 +5,10 @@ import com.wliky.melody.core.model.ApiMode
 import com.wliky.melody.core.model.AudioQuality
 import com.wliky.melody.core.model.SongUrl
 import com.wliky.melody.core.network.ApiClient
-import com.wliky.melody.core.network.HttpResponseData
 import com.wliky.melody.core.network.arrayOrNull
 import com.wliky.melody.core.network.int
 import com.wliky.melody.core.network.jsonObjectOf
+import com.wliky.melody.core.network.obj
 import com.wliky.melody.core.network.objOrNull
 import com.wliky.melody.core.network.str
 import com.wliky.melody.core.network.toJsonPrimitive
@@ -27,6 +27,18 @@ import kotlinx.serialization.json.contentOrNull
  * 请求方式与官方客户端一致：路径 `api` 段替换为 `weapi`，参数走 AES+RSA 加密后 POST。
  * 登录态通过 Cookie 维持，Cookie 存在 Android Keystore 保护的存储里，
  * 每次响应都会把新的 Set-Cookie 合并回会话（含 __csrf）。
+ *
+ * ### 关于请求头（登录失败的根因）
+ *
+ * 网易近年收紧了风控：**登录链路（二维码 key / 轮询）只认移动端 UA，且要求
+ * `Referer` 指向 `/login`**，否则服务端返回 403，body 里没有 unikey ——
+ * 客户端侧看到的就是「二维码返回异常，接口可能变更」。
+ * 因此 [requestViaWeapi] 对登录端点单独换了一套请求头，普通业务接口仍用桌面 Web 头。
+ *
+ * ### 双链路
+ *
+ * 登录端点与歌曲地址都做 weapi → eapi 的兜底重试。eapi 面向移动客户端，
+ * 会额外携带设备信息（deviceId / appver / os），在 weapi 被拦时往往仍然可用。
  */
 @Singleton
 class DirectNeteaseDataSource @Inject constructor(
@@ -55,22 +67,76 @@ class DirectNeteaseDataSource @Inject constructor(
     }
 
     override suspend fun request(endpoint: NeteaseEndpoint, payload: JsonObject): JsonElement {
-        val path = NeteaseCrypto.transformPath(
-            requirePath(endpoint.directPath, endpoint.name),
-            target = "weapi",
-        )
+        if (!endpoint.isQrEndpoint) return requestViaWeapi(endpoint, payload, mobileHeaders = false)
+
+        // 登录链路：weapi 优先，失败或拿不到关键字段时用 eapi 再试一次。
+        val viaWeapi = runCatching { requestViaWeapi(endpoint, payload, mobileHeaders = true) }
+        val weapiResult = viaWeapi.getOrNull()
+        if (weapiResult != null && weapiResult.looksLikeQrPayload()) return weapiResult
+
+        val viaEapi = runCatching { requestViaEapi(endpoint, payload) }
+        return viaEapi.getOrElse {
+            // 两条链路都失败：抛出信息量更大的那一个
+            viaWeapi.exceptionOrNull()?.let { error -> throw error }
+            weapiResult ?: throw AppError.Server("登录接口无响应，请稍后重试")
+        }
+    }
+
+    private suspend fun requestViaWeapi(
+        endpoint: NeteaseEndpoint,
+        payload: JsonObject,
+        mobileHeaders: Boolean,
+    ): JsonElement {
+        val path = NeteaseCrypto.transformPath(requirePath(endpoint.directPath, endpoint.name), target = "weapi")
         val cookie = session.cookie()
         val csrf = parseCookie(cookie)["__csrf"].orEmpty()
         val body = if (csrf.isBlank()) payload else JsonObject(payload + ("csrf_token" to JsonPrimitive(csrf)))
         val form = NeteaseCrypto.weapi(body.toString())
         val url = "$WEB_HOST$path?csrf_token=$csrf"
 
-        val response = apiClient.postForm(url, form, webHeaders(cookie))
+        val response = apiClient.postForm(url, form, webHeaders(cookie, mobileHeaders))
         mergeCookies(response.setCookies())
         response.requireSuccess()
         val element = response.parseBody(url)
         throwIfLoginRequired(element)
         return element
+    }
+
+    /** eapi 链路：模拟移动客户端，参数仍然只走公开的签名算法。 */
+    private suspend fun requestViaEapi(endpoint: NeteaseEndpoint, payload: JsonObject): JsonElement {
+        val path = NeteaseCrypto.transformPath(requirePath(endpoint.directPath, endpoint.name), target = "eapi")
+        val body = JsonObject(payload + ("header" to eapiHeader()))
+        val form = mapOf("params" to NeteaseCrypto.eapi(path, body.toString()))
+        val url = "$EAPI_HOST$path"
+        val response = apiClient.postForm(url, form, eapiHeaders())
+        mergeCookies(response.setCookies())
+        response.requireSuccess()
+        return response.parseBody(url)
+    }
+
+    /**
+     * eapi 的 header 字段。官方客户端会带上设备与版本信息，缺失时容易被判为异常环境。
+     * deviceId 由会话存储生成并持久化，保证同一台设备始终一致。
+     */
+    private fun eapiHeader(): JsonObject {
+        val now = System.currentTimeMillis()
+        val cookie = parseCookie(session.cookie())
+        return JsonObject(
+            buildMap {
+                put("osver", JsonPrimitive("13"))
+                put("deviceId", JsonPrimitive(session.deviceId()))
+                put("appver", JsonPrimitive(APP_VERSION))
+                put("versioncode", JsonPrimitive(APP_VERSION_CODE))
+                put("mobilename", JsonPrimitive(DEVICE_MODEL))
+                put("buildver", JsonPrimitive((now / 1000).toString()))
+                put("resolution", JsonPrimitive("1920x1080"))
+                put("os", JsonPrimitive("android"))
+                put("channel", JsonPrimitive(""))
+                put("requestId", JsonPrimitive("${now}_0000"))
+                cookie["MUSIC_U"]?.takeIf { it.isNotBlank() }?.let { put("MUSIC_U", JsonPrimitive(it)) }
+                cookie["__csrf"]?.takeIf { it.isNotBlank() }?.let { put("__csrf", JsonPrimitive(it)) }
+            },
+        )
     }
 
     /**
@@ -90,11 +156,12 @@ class DirectNeteaseDataSource @Inject constructor(
                 "ids" to JsonPrimitive(JsonArray(listOf(JsonPrimitive(songId))).toString()),
                 "level" to JsonPrimitive(quality.apiValue),
                 "encodeType" to JsonPrimitive("flac"),
+                "header" to eapiHeader(),
             ),
         )
         val form = mapOf("params" to NeteaseCrypto.eapi(path, payload.toString()))
         val url = "$EAPI_HOST$path"
-        val response = apiClient.postForm(url, form, webHeaders(session.cookie()))
+        val response = apiClient.postForm(url, form, eapiHeaders())
         mergeCookies(response.setCookies())
         response.requireSuccess()
         val item = response.parseBody(url).objOrNull()?.get("data").arrayOrNull()?.firstOrNull()?.objOrNull()
@@ -115,18 +182,59 @@ class DirectNeteaseDataSource @Inject constructor(
         if (code == 301) throw AppError.Unauthorized()
     }
 
-    private fun webHeaders(cookie: String): Map<String, String> = buildMap {
+    /** 判断登录链路响应是否真的带回了可用数据（403 时 body 是一段 HTML 或空对象）。 */
+    private fun JsonElement.looksLikeQrPayload(): Boolean {
+        val obj = objOrNull() ?: return false
+        if (obj.str("unikey") != null) return true
+        if (obj.obj("data")?.str("unikey") != null) return true
+        // 轮询接口成功时只返回 code/message，没有 unikey，此时也算有效响应
+        val code = obj.int("code") ?: return false
+        return code in QR_SUCCESS_CODES
+    }
+
+    private fun webHeaders(cookie: String, mobile: Boolean): Map<String, String> = buildMap {
+        put("Referer", if (mobile) "$WEB_HOST/login" else "$WEB_HOST/")
+        put("Origin", WEB_HOST)
+        put("User-Agent", if (mobile) MOBILE_USER_AGENT else DESKTOP_USER_AGENT)
+        put("Content-Type", "application/x-www-form-urlencoded")
+        if (cookie.isNotBlank()) put("Cookie", cookie)
+    }
+
+    private fun eapiHeaders(): Map<String, String> = buildMap {
         put("Referer", "$WEB_HOST/")
         put("Origin", WEB_HOST)
-        put("User-Agent", USER_AGENT)
+        put("User-Agent", EAPI_USER_AGENT)
         put("Content-Type", "application/x-www-form-urlencoded")
+        val cookie = session.cookie()
         if (cookie.isNotBlank()) put("Cookie", cookie)
     }
 
     private companion object {
         const val WEB_HOST = "https://music.163.com"
         const val EAPI_HOST = "https://interface3.music.163.com"
-        const val USER_AGENT =
-            "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+
+        /**
+         * 登录链路必须是移动端标识 —— 用桌面 UA 请求二维码接口会直接 403。
+         * 这是「二维码返回异常」问题的直接原因。
+         */
+        const val MOBILE_USER_AGENT =
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 " +
+                "(KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
+
+        /** 普通 Web 接口沿用桌面 UA。 */
+        const val DESKTOP_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+        /** 模拟官方 Android 客户端的 UA。 */
+        const val EAPI_USER_AGENT =
+            "NeteaseMusic/8.10.90.240103170852(8009090);Dalvik/2.1.0 (Linux; U; Android 13; Pixel 6 Build/TQ3A.230805.001)"
+
+        const val APP_VERSION = "8.10.90"
+        const val APP_VERSION_CODE = "8009090"
+        const val DEVICE_MODEL = "Pixel 6"
+
+        /** 登录状态码（801 待扫码 / 802 待确认 / 803 成功 / 800 过期 / 8821 风控）。 */
+        val QR_SUCCESS_CODES = setOf(800, 801, 802, 803, 8821)
     }
 }
