@@ -34,7 +34,10 @@ inline fun <T, R> AppResult<T>.fold(
     is AppResult.Failure -> onFailure(error)
 }
 
-sealed class AppError(open val message: String, open val cause: Throwable? = null) {
+sealed class AppError(
+    override val message: String,
+    override val cause: Throwable? = null,
+) : Exception(message, cause) {
     /** 网络不可用 / 超时 / DNS 失败，可重试。 */
     data class Network(override val message: String = "网络连接失败，请检查网络后重试", override val cause: Throwable? = null) : AppError(message, cause)
 

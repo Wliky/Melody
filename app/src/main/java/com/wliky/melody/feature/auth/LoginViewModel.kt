@@ -3,6 +3,8 @@ package com.wliky.melody.feature.auth
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.wliky.melody.core.common.fold
+import com.wliky.melody.core.common.onFailure
+import com.wliky.melody.core.common.onSuccess
 import com.wliky.melody.core.datastore.SettingsRepository
 import com.wliky.melody.core.model.ApiMode
 import com.wliky.melody.core.model.QrCodeInfo

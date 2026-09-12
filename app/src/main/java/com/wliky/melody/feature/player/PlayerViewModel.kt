@@ -3,6 +3,8 @@ package com.wliky.melody.feature.player
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.wliky.melody.core.common.Clock
+import com.wliky.melody.core.common.onFailure
+import com.wliky.melody.core.common.onSuccess
 import com.wliky.melody.core.model.AppRepeatMode
 import com.wliky.melody.core.model.Lyric
 import com.wliky.melody.core.model.PlayerState

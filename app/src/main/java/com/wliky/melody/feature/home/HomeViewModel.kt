@@ -3,6 +3,8 @@ package com.wliky.melody.feature.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.wliky.melody.core.common.AppError
+import com.wliky.melody.core.common.onFailure
+import com.wliky.melody.core.common.onSuccess
 import com.wliky.melody.core.model.HomeFeed
 import com.wliky.melody.data.repository.AuthRepository
 import com.wliky.melody.data.repository.HomeRepository

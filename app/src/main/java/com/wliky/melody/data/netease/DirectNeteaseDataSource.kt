@@ -45,7 +45,8 @@ class DirectNeteaseDataSource @Inject constructor(
         NeteaseEndpoint.SONG_URL -> JsonObject(payload.filterKeys { it in setOf("ids", "level", "encodeType") })
 
         NeteaseEndpoint.SONG_DETAIL -> {
-            val ids = payload["ids"].arrayOrNull().orEmpty().mapNotNull { it.contentOrNull }
+            val ids = payload["ids"].arrayOrNull().orEmpty()
+                .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
             val c = JsonArray(ids.map { id -> JsonObject(mapOf("id" to JsonPrimitive(id))) })
             jsonObjectOf("c" to JsonPrimitive(c.toString()))
         }

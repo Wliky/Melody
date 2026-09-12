@@ -25,8 +25,9 @@ import kotlinx.serialization.json.contentOrNull
  */
 @Singleton
 class ApiServerNeteaseDataSource @Inject constructor(
-    private val apiClient: ApiClient,
-    private val session: SecureSessionStore,
+    // 不加 private val：这两个由基类以 protected 形式持有，直接复用，避免遮蔽同名成员
+    apiClient: ApiClient,
+    session: SecureSessionStore,
     private val settingsRepository: SettingsRepository,
 ) : BaseNeteaseDataSource(apiClient, session) {
 
@@ -117,7 +118,9 @@ class ApiServerNeteaseDataSource @Inject constructor(
         forEach { (key, value) ->
             when (value) {
                 is JsonPrimitive -> result[key] = value.contentOrNull ?: value.toString()
-                is JsonArray -> result[key] = value.mapNotNull { it.contentOrNull }.joinToString(",")
+                is JsonArray -> result[key] =
+                    value.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.joinToString(",")
+
                 else -> Unit
             }
         }
@@ -126,8 +129,9 @@ class ApiServerNeteaseDataSource @Inject constructor(
 
     private fun JsonElement?.flatStrings(): List<String> = when (this) {
         null -> emptyList()
-        is JsonArray -> mapNotNull { it.contentOrNull }
-        else -> listOfNotNull(contentOrNull)
+        is JsonArray -> mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+        is JsonPrimitive -> listOfNotNull(contentOrNull)
+        else -> emptyList()
     }
 
     private companion object {
