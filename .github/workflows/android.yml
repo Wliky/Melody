@@ -73,6 +73,7 @@ jobs:
           path: |
             app/build/reports/**
             **/build/reports/tests/**
+            **/build/test-results/**
           if-no-files-found: ignore
 
       - name: Attach APKs to GitHub Release

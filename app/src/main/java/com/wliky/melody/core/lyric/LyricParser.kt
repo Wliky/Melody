@@ -18,6 +18,9 @@ object LyricParser {
     private val TIME_TAG = Regex("\\[(\\d{1,3}):(\\d{1,2})(?:[.:](\\d{1,3}))?]")
     private val META_TAG = Regex("^\\[(ti|ar|al|by|offset|re|ve|length):.*]$")
 
+    /** offset 单独匹配：META_TAG 带 ^$ 锚点，只能整行匹配，不能拿去 findAll 多行文本。 */
+    private val OFFSET_TAG = Regex("\\[offset:\\s*(-?\\d+)\\s*]")
+
     fun parse(rawLrc: String, rawTranslation: String = ""): Lyric {
         if (rawLrc.isBlank()) return Lyric.EMPTY
         val offset = parseOffset(rawLrc)
@@ -51,15 +54,12 @@ object LyricParser {
             .associate { it.timeMs to it.text }
     }
 
-    private fun parseOffset(raw: String): Long {
-        META_TAG.findAll(raw).forEach { match ->
-            val text = match.value
-            if (text.startsWith("[offset:")) {
-                return text.removePrefix("[offset:").removeSuffix("]").trim().toLongOrNull() ?: 0L
-            }
-        }
-        return 0L
-    }
+    /**
+     * LRC 的 `[offset:N]` 单位是毫秒，正值表示歌词整体提前（时间轴减去 N），
+     * 与 LRC 规范一致；负值则整体延后。
+     */
+    private fun parseOffset(raw: String): Long =
+        OFFSET_TAG.find(raw)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
 
     private fun MatchResult.toMilliseconds(): Long {
         val minutes = groupValues[1].toLongOrNull() ?: 0L

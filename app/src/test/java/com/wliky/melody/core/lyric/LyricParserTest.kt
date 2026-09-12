@@ -62,10 +62,17 @@ class LyricParserTest {
 
     @Test
     fun `offset 会平移时间轴`() {
-        // offset 单位是毫秒，正值表示整体延后
+        // offset 单位是毫秒，正值表示歌词整体提前（时间轴减去 offset）
         val lyric = LyricParser.parse("[offset:500]\n[00:01.00]歌词")
 
         assertEquals(500L, lyric.lines[0].timeMs)
+    }
+
+    @Test
+    fun `负 offset 会把歌词整体延后`() {
+        val lyric = LyricParser.parse("[offset:-500]\n[00:01.00]歌词")
+
+        assertEquals(1_500L, lyric.lines[0].timeMs)
     }
 
     @Test

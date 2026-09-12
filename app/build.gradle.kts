@@ -65,6 +65,16 @@ android {
         }
     }
 
+    // CI 上单测失败时直接把原因打到日志里，不用再去翻 HTML 报告
+    testOptions {
+        unitTests.all {
+            it.testLogging {
+                events("passed", "skipped", "failed")
+                exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+            }
+        }
+    }
+
     lint {
         abortOnError = false
     }
