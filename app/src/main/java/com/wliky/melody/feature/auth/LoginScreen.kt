@@ -316,16 +316,18 @@ private fun WebViewLogin(
                     userAgentString = "Mozilla/5.0 (Linux; Android 12; Mobile; rv:124.0) " +
                         "Gecko/124.0 Firefox/124.0"
                 }
+                onWebViewReady(this)
+            }.also { wv ->
                 // WebView 默认会拒掉第三方 Cookie —— 网易在 y.music.163.com 上写 Cookie
-                // 必须打开，否则登录态根本拿不到。注意 API 21+ 才能调
-                // setAcceptThirdPartyCookies，且必须传 WebView 本身而非 settings。
+                // 必须打开，否则登录态根本拿不到。注意 setAcceptThirdPartyCookies 必须
+                // 传 WebView 本身（不是 settings），且 API 21+ 才能调用。
                 @Suppress("DEPRECATION")
-                CookieManager.getInstance().apply {
+                CookieManager.getInstance().run {
                     setAcceptCookie(true)
-                    setAcceptThirdPartyCookies(this@apply /* WebView */, true)
+                    setAcceptThirdPartyCookies(wv, true)
                 }
-                webViewClient = object : WebViewClient() {
-                    override fun onPageStarted(view: WebView?, url: String?) {
+                wv.webViewClient = object : WebViewClient() {
+                    override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                         onPageStarted()
                     }
                     override fun onPageFinished(view: WebView?, url: String?) {
@@ -334,8 +336,7 @@ private fun WebViewLogin(
                     // 不拦截 shouldOverrideUrlLoading —— 让网易自己的跳转正常进行
                     // （扫码登录成功后官方页会跳到 y.music.163.com/m/）。
                 }
-                loadUrl(LOGIN_URL)
-                onWebViewReady(this)
+                wv.loadUrl(LOGIN_URL)
             }
         },
         update = { /* state 变化由 ViewModel 自身读取 CookieManager 触发 */ },
