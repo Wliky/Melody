@@ -131,6 +131,10 @@ private fun HomeContent(
             )
         }
 
+        if (!loggedIn) {
+            item { LoginBanner(onOpenLogin = onOpenLogin) }
+        }
+
         val daily = feed?.personalizedSongs.orEmpty()
         if (daily.isNotEmpty()) {
             item { SectionHeader(title = "每日推荐", subtitle = "根据你的口味生成") }
@@ -207,6 +211,48 @@ private fun HomeContent(
                 )
             }
         }
+    }
+}
+
+/**
+ * 未登录时的引导横幅：明确告诉用户登录后才能播放，点击直达登录页。
+ */
+@Composable
+private fun LoginBanner(onOpenLogin: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 4.dp)
+            .clip(MaterialTheme.shapes.large)
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .clickable(onClick = onOpenLogin)
+            .padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Login,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "登录后即可播放",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            Text(
+                text = "同步歌单、收藏与听歌记录",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+            )
+        }
+        Text(
+            text = "去登录",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
     }
 }
 

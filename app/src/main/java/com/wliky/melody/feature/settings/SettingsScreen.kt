@@ -11,25 +11,22 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.CloudSync
+import androidx.compose.material.icons.rounded.Login
 import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -38,7 +35,6 @@ import com.wliky.melody.BuildConfig
 import com.wliky.melody.core.datastore.ThemeMode
 import com.wliky.melody.core.designsystem.component.SettingItem
 import com.wliky.melody.core.designsystem.component.SettingsGroup
-import com.wliky.melody.core.model.ApiMode
 import com.wliky.melody.core.model.AudioQuality
 
 /**
@@ -52,6 +48,7 @@ import com.wliky.melody.core.model.AudioQuality
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     onBack: () -> Unit,
+    onOpenLogin: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
@@ -67,26 +64,26 @@ fun SettingsScreen(
         contentPadding = PaddingValues(bottom = 140.dp),
     ) {
         item {
-            SettingsGroup(title = "数据源") {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    ChoiceChips(
-                        options = ApiMode.entries.map { it to it.label },
-                        selectedIndex = ApiMode.entries.indexOf(settings.apiMode),
-                        onSelect = { viewModel.setApiMode(ApiMode.entries[it]) },
+            SettingsGroup(title = "账号") {
+                if (loggedIn) {
+                    SettingItem(
+                        title = "已登录网易云音乐",
+                        subtitle = "登录态由 MUSIC_U 维护，凭据加密保存在本机",
+                        icon = Icons.Rounded.Person,
                     )
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        text = settings.apiMode.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    SettingItem(
+                        title = "退出登录",
+                        subtitle = "清除本机保存的登录凭据",
+                        icon = Icons.Rounded.Logout,
+                        onClick = viewModel::logout,
                     )
-                    if (settings.apiMode == ApiMode.API_SERVER) {
-                        Spacer(Modifier.height(14.dp))
-                        BaseUrlField(
-                            current = settings.apiBaseUrl,
-                            onSave = viewModel::setApiBaseUrl,
-                        )
-                    }
+                } else {
+                    SettingItem(
+                        title = "登录网易云音乐",
+                        subtitle = "登录后才能使用播放、歌单、收藏与听歌记录同步",
+                        icon = Icons.Rounded.Login,
+                        onClick = onOpenLogin,
+                    )
                 }
             }
         }
@@ -156,19 +153,6 @@ fun SettingsScreen(
             }
         }
 
-        if (loggedIn) {
-            item {
-                SettingsGroup(title = "账号") {
-                    SettingItem(
-                        title = "退出登录",
-                        subtitle = "清除本机保存的登录凭据",
-                        icon = Icons.Rounded.Logout,
-                        onClick = viewModel::logout,
-                    )
-                }
-            }
-        }
-
         item {
             SettingsGroup(title = "关于") {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -208,8 +192,8 @@ fun SettingsScreen(
 /**
  * 「自动同步」的真实状态说明。
  *
- * 关键在于如实告知：同步是自动的，但直连模式下官方没有对第三方开放上报通道，
- * 因此那种情况下只有本地记录。
+ * 同步是听歌后自动记录并提交的（无手动入口），这里只如实告知开关的含义：
+ * 数据源固定为自建 API 服务，只有它提供上报通道。
  */
 private fun autoSyncDescription(reportEnabled: Boolean): String =
     if (reportEnabled) {
@@ -232,32 +216,6 @@ private fun ChoiceChips(
                 onClick = { onSelect(index) },
                 label = { Text(label) },
             )
-        }
-    }
-}
-
-@Composable
-private fun BaseUrlField(current: String, onSave: (String) -> Unit) {
-    var draft by remember(current) { mutableStateOf(current) }
-    Column {
-        OutlinedTextField(
-            value = draft,
-            onValueChange = { draft = it },
-            singleLine = true,
-            label = { Text("服务地址") },
-            placeholder = { Text("http://192.168.1.10:3000") },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Spacer(Modifier.width(8.dp))
-            TextButton(
-                onClick = { onSave(draft) },
-                enabled = draft != current,
-            ) { Text("保存地址") }
         }
     }
 }

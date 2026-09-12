@@ -5,8 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.wliky.melody.core.common.fold
 import com.wliky.melody.core.common.onFailure
 import com.wliky.melody.core.common.onSuccess
-import com.wliky.melody.core.datastore.SettingsRepository
-import com.wliky.melody.core.model.ApiMode
 import com.wliky.melody.core.model.QrCodeInfo
 import com.wliky.melody.data.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -14,11 +12,8 @@ import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -34,7 +29,6 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class LoginViewModel @Inject constructor(
     private val authRepository: AuthRepository,
-    settingsRepository: SettingsRepository,
 ) : ViewModel() {
 
     /** 登录方式；任意一条失败都能一键切到另一条。 */
@@ -87,10 +81,6 @@ class LoginViewModel @Inject constructor(
 
     private val _cookieState = MutableStateFlow(CookieState())
     val cookieState: StateFlow<CookieState> = _cookieState.asStateFlow()
-
-    val apiMode: StateFlow<ApiMode> = settingsRepository.settings
-        .map { it.apiMode }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ApiMode.API_SERVER)
 
     private var pollJob: Job? = null
     private var countdownJob: Job? = null

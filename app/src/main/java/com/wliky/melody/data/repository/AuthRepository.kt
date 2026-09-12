@@ -4,8 +4,6 @@ import com.wliky.melody.core.common.AppError
 import com.wliky.melody.core.common.AppResult
 import com.wliky.melody.core.common.DispatchersProvider
 import com.wliky.melody.core.common.appRunCatching
-import com.wliky.melody.core.datastore.SettingsRepository
-import com.wliky.melody.core.model.ApiMode
 import com.wliky.melody.core.model.LoginPollResult
 import com.wliky.melody.core.model.QrCodeInfo
 import com.wliky.melody.core.model.UserProfile
@@ -19,7 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 /**
@@ -32,7 +30,6 @@ import kotlinx.coroutines.flow.stateIn
 class AuthRepository @Inject constructor(
     private val providers: NeteaseProviderResolver,
     private val session: SecureSessionStore,
-    settingsRepository: SettingsRepository,
     dispatchers: DispatchersProvider,
 ) {
 
@@ -41,16 +38,16 @@ class AuthRepository @Inject constructor(
     private val _profile = MutableStateFlow<UserProfile?>(null)
     val profile: StateFlow<UserProfile?> = _profile.asStateFlow()
 
-    /** 演示模式视为已登录，不打扰用户。 */
-    val loggedIn: StateFlow<Boolean> = combine(
-        session.loggedIn,
-        settingsRepository.settings,
-    ) { hasSession, settings ->
-        settings.apiMode == ApiMode.MOCK || hasSession
-    }.stateIn(scope, SharingStarted.Eagerly, session.loggedIn.value)
+    /**
+     * 是否已登录。唯一判据是会话里有没有真正的 `MUSIC_U`（见 [SecureSessionStore.loggedIn]）。
+     *
+     * 数据源已固定为自建 API 服务（api-enhanced），不再有「演示模式视为已登录」的特例：
+     * 未登录就无法使用网易云播放功能，登录页是唯一入口。
+     */
+    val loggedIn: StateFlow<Boolean> = session.loggedIn
 
-    val requiresLogin: StateFlow<Boolean> = settingsRepository.settings
-        .combine(session.loggedIn) { settings, _ -> settings.apiMode != ApiMode.MOCK }
+    val requiresLogin: StateFlow<Boolean> = session.loggedIn
+        .map { !it }
         .stateIn(scope, SharingStarted.Eagerly, true)
 
     fun userId(): String = session.userId()

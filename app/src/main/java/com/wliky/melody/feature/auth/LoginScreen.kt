@@ -56,7 +56,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
-import com.wliky.melody.core.model.ApiMode
 
 /**
  * 登录页：三条互为兜底的通路。
@@ -79,7 +78,6 @@ fun LoginScreen(
     val method by viewModel.method.collectAsStateWithLifecycle()
     val phoneState by viewModel.phoneState.collectAsStateWithLifecycle()
     val cookieState by viewModel.cookieState.collectAsStateWithLifecycle()
-    val apiMode by viewModel.apiMode.collectAsStateWithLifecycle()
 
     LaunchedEffect(state) {
         if (state is LoginViewModel.LoginState.Success) onLoggedIn()
@@ -108,11 +106,6 @@ fun LoginScreen(
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(24.dp))
-
-        if (apiMode == ApiMode.MOCK) {
-            DemoModeNotice(onBack = onBack)
-            return@Column
-        }
 
         MethodSwitcher(current = method, onSelect = viewModel::switchMethod)
         Spacer(Modifier.height(20.dp))
@@ -534,18 +527,6 @@ private fun NoticeCard(
             }
         }
     }
-}
-
-@Composable
-private fun DemoModeNotice(onBack: () -> Unit) {
-    NoticeCard(
-        title = "当前是演示模式",
-        message = "演示模式不需要登录，所有内容都是内置示例数据。\n" +
-            "想登录自己的账号，请先到「设置 → 数据源」切到直连模式或自建服务。",
-        tone = NoticeTone.NEUTRAL,
-    )
-    Spacer(Modifier.height(16.dp))
-    TextButton(onClick = onBack) { Text("返回") }
 }
 
 @Composable

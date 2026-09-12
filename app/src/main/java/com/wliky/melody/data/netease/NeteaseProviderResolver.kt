@@ -8,8 +8,9 @@ import javax.inject.Singleton
 /**
  * 数据源解析器（文档 §17「插件化 Provider」）。
  *
- * 三个 Provider 都是单例，这里只负责按当前设置挑选其中一个，并带上缓存，
- * 让切换数据源后不需要重启 App。
+ * **数据源已固定为自建 API 服务（api-enhanced）**，不再暴露「直连 / 演示」切换：
+ * 用户部署的服务是纯 HTTP，登录最稳、兼容性最好。这里的 `mock` / `direct` 仍作为
+ * 编译期依赖保留（避免破坏 Hilt 注入与既有测试），但运行期只会返回 [apiServer]。
  */
 @Singleton
 class NeteaseProviderResolver @Inject constructor(
@@ -29,9 +30,10 @@ class NeteaseProviderResolver @Inject constructor(
         val settings = settingsRepository.current()
         val key = "${settings.apiMode}|${settings.apiBaseUrl}"
         cached?.takeIf { cacheKey == key }?.let { return it }
+
+        // 固定走自建 API 服务；即便历史设置里残留了 MOCK / DIRECT，也一律回落到 API_SERVER。
         val resolved: NeteaseDataSource = when (settings.apiMode) {
-            ApiMode.MOCK -> mock
-            ApiMode.DIRECT -> direct
+            ApiMode.MOCK, ApiMode.DIRECT -> apiServer
             ApiMode.API_SERVER -> apiServer
         }
         cacheKey = key
@@ -39,6 +41,6 @@ class NeteaseProviderResolver @Inject constructor(
         return resolved
     }
 
-    /** 当前模式是否需要登录（演示模式不需要）。 */
+    /** 当前模式是否需要登录（固定数据源下永远需要）。 */
     suspend fun requiresLogin(): Boolean = current().mode != ApiMode.MOCK
 }

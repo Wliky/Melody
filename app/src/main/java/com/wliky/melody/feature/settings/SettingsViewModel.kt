@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.wliky.melody.core.datastore.AppSettings
 import com.wliky.melody.core.datastore.SettingsRepository
 import com.wliky.melody.core.datastore.ThemeMode
-import com.wliky.melody.core.model.ApiMode
 import com.wliky.melody.core.model.AudioQuality
 import com.wliky.melody.data.repository.AuthRepository
 import com.wliky.melody.data.repository.MusicRepository
@@ -36,10 +35,6 @@ class SettingsViewModel @Inject constructor(
     fun setThemeMode(mode: ThemeMode) = launchSetting { settingsRepository.setThemeMode(mode) }
 
     fun setDynamicColor(enabled: Boolean) = launchSetting { settingsRepository.setDynamicColor(enabled) }
-
-    fun setApiMode(mode: ApiMode) = launchSetting { settingsRepository.setApiMode(mode) }
-
-    fun setApiBaseUrl(url: String) = launchSetting { settingsRepository.setApiBaseUrl(url) }
 
     fun setAudioQuality(quality: AudioQuality) = launchSetting { settingsRepository.setAudioQuality(quality) }
 

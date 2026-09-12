@@ -214,6 +214,7 @@ fun MelodyApp() {
                             SettingsScreen(
                                 viewModel = viewModel,
                                 onBack = { navController.popBackStack() },
+                                onOpenLogin = { navController.navigate(Destinations.LOGIN) },
                             )
                         }
 

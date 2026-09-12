@@ -5,6 +5,7 @@ import com.wliky.melody.core.model.ApiMode
 import com.wliky.melody.core.model.AudioQuality
 import com.wliky.melody.core.model.PlaybackEvent
 import com.wliky.melody.core.player.SongUrlProvider
+import com.wliky.melody.core.security.SecureSessionStore
 import com.wliky.melody.data.netease.NeteaseProviderResolver
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -17,11 +18,15 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * ExoPlayer 在加载线程上同步调用，所以内部用 runBlocking 把挂起请求桥接过来，
  * 并带 10 分钟缓存（地址本身有时效性）。
+ *
+ * **登录门禁**：未登录（会话里没有 `MUSIC_U`）时直接返回 null 拒绝解析，
+ * 这样播放功能在没有登录态时完全不可用 —— 符合「默认登录才能使用网易云播放功能」。
  */
 @Singleton
 class NeteaseSongUrlProvider @Inject constructor(
     private val providers: NeteaseProviderResolver,
     private val settingsRepository: SettingsRepository,
+    private val session: SecureSessionStore,
 ) : SongUrlProvider {
 
     private data class CacheEntry(val url: String, val expiresAt: Long)
@@ -29,6 +34,9 @@ class NeteaseSongUrlProvider @Inject constructor(
     private val cache = ConcurrentHashMap<String, CacheEntry>()
 
     override fun resolveBlocking(songId: String): String? {
+        // 登录门禁：未登录就不解析任何地址，播放器自然无法出声。
+        if (!session.hasAuthToken()) return null
+
         cache[songId]?.takeIf { it.expiresAt > System.currentTimeMillis() }?.let { return it.url }
 
         val resolved = runBlocking {

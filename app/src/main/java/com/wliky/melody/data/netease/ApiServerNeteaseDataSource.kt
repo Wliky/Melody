@@ -6,8 +6,10 @@ import com.wliky.melody.core.datastore.SettingsRepository
 import com.wliky.melody.core.model.ApiMode
 import com.wliky.melody.core.model.PlaybackEvent
 import com.wliky.melody.core.network.ApiClient
+import com.wliky.melody.core.network.MelodyJson
 import com.wliky.melody.core.network.int
 import com.wliky.melody.core.network.objOrNull
+import com.wliky.melody.core.network.str
 import com.wliky.melody.core.security.SecureSessionStore
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -71,9 +73,30 @@ class ApiServerNeteaseDataSource @Inject constructor(
             apiClient.get(url, params, defaultHeaders())
         }
         mergeCookies(response.setCookies())
-        response.requireSuccess()
-        val element = response.parseBody(url)
-        if (element.objOrNull()?.int("code") == 301) throw AppError.Unauthorized()
+
+        // 关键：api-enhanced（NeteaseCloudMusicApi）会把网易返回的**业务码**直接映射成
+        // HTTP 状态码（例如验证码错误 code=503 → HTTP 503，参数错误 code=400 → HTTP 400）。
+        // 如果这里对非 2xx 直接 requireSuccess()，body 里的 code/msg 就全丢了，用户只会看到
+        // 一句笼统的「请求被拒绝（HTTP 400）」，看不到「验证码错误」这种真正有用的信息。
+        // 所以：先尽量把 body 解析出来，让上层（登录链路）能读到真实的 code/msg。
+        val element = runCatching { MelodyJson.parseToJsonElement(response.body) }
+            .getOrElse { JsonObject(emptyMap()) }
+        val obj = element.objOrNull()
+        val bodyCode = obj?.int("code")
+
+        if (response.code !in 200..299) {
+            // 解析不出 body，才退回 HTTP 层的通用报错。
+            if (obj == null) response.requireSuccess()
+            // 301 = 需要登录 / 登录态失效：直接抛出明确错误。
+            if (bodyCode == 301) throw AppError.Unauthorized()
+            // 登录端点：把 body 原样回传，让登录链路按 code/msg 翻译成友好文案；
+            // 非登录端点：直接抛出带 body 信息的具体错误。
+            if (!endpoint.isLoginEndpoint) {
+                val msg = obj.str("message") ?: obj.str("msg") ?: "接口返回错误"
+                throw AppError.Server(msg, bodyCode ?: response.code)
+            }
+        }
+
         return element
     }
 
