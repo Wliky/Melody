@@ -40,7 +40,7 @@ Android 优先、领域层与网络层提前抽离、播放记录采用事件队
 | 播放事件队列 + 可插拔同步 Provider + 重试上限 | ✅ |
 | 网络异常 / 登录失效 / 资源不可用均有明确 UI 状态 | ✅ |
 | 手机 / 平板自适应（600dp 断点，底栏 ↔ 侧边导航栏、双栏布局） | ✅ |
-| 单元测试（歌词、加解密、事件队列、DTO 兼容性、分页） | ✅ |
+| 单元测试（46 个用例，歌词、加解密、事件队列、DTO 兼容性、分页） | ✅ |
 
 三种数据源模式，随时切换、无需等 App 更新：
 
@@ -54,14 +54,29 @@ Android 优先、领域层与网络层提前抽离、播放记录采用事件队
 
 ## 下载与安装
 
-APK 由 GitHub Actions **每次提交代码后自动构建**，无需本地环境：
+### 直接下载（推荐）
 
-1. 打开 [Actions](https://github.com/Wliky/Melody/actions/workflows/android.yml) → 选择最新一次成功的 run；
-2. 在页面底部的 **Artifacts** 里下载 `melody-apk-<sha>`（内含 debug 与 release 两个 APK）；
-3. 打 tag（如 `v0.1.0`）推送后，会自动创建 [Release](https://github.com/Wliky/Melody/releases) 并附上 APK。
+最新 APK 由 CI 自动构建并发布到 Release：
+
+**➡️ [下载 v0.1.0](https://github.com/Wliky/Melody/releases/tag/v0.1.0)**
+
+| 文件 | 大小 | 用途 |
+| --- | --- | --- |
+| `melody-v0.1.0-<sha>-release.apk` | 约 16 MB | 日常安装使用 |
+| `melody-v0.1.0-<sha>-debug.apk` | 约 23 MB | 含调试信息，排查问题时用 |
+
+安装前需要在系统设置中允许「安装未知来源应用」。
 
 > release 包在未配置正式签名时使用 debug 签名，保证任何一次构建产物都可直接安装。
 > 要发布正式版，请在 `app/build.gradle.kts` 的 `release` 中替换为自己的 `signingConfig`。
+
+### 每次提交自动构建
+
+推送到任意分支都会触发一次完整构建（单测 → debug APK → release APK → 上传产物）：
+
+1. 打开 [Actions](https://github.com/Wliky/Melody/actions/workflows/android.yml) → 选择最新一次成功的 run；
+2. 在页面底部的 **Artifacts** 里下载 `melody-apk-<sha>`（内含 debug 与 release 两个 APK）。
+3. 推 `v*` tag 时，除上述流程外还会自动创建 [Release](https://github.com/Wliky/Melody/releases) 并附上两个 APK。
 
 ## 从源码构建
 
@@ -136,7 +151,7 @@ app/src/main/java/com/wliky/melody/
 ./gradlew testDebugUnitTest
 ```
 
-覆盖：歌词解析（多时间标签 / offset / 翻译合并）、加解密（AES-CBC/ECB 可用标准实现解密验证、
+覆盖 46 个用例：歌词解析（多时间标签 / offset 平移 / 翻译合并）、加解密（AES-CBC/ECB 用标准实现解密验证、
 Base64 与 JDK 实现逐字节一致、RSA 输出长度）、播放事件队列（幂等、暂停不计时、拖动不计时、
 重试上限、不支持时 SKIPPED）、DTO 兼容性（数字/字符串 ID、字段缺失、未知字段、顶层数组）、
 分页与格式化。
