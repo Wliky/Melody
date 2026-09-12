@@ -34,8 +34,11 @@ object CookieParser {
             ?: return null
 
         if (!trimmed.contains('=')) {
-            // 用户只复制了值
-            return "$KEY_MUSIC_U=$trimmed"
+            // 用户只复制了值。但要排除「;;;」「---」这类误粘：单个凭据里既不该有分隔符，
+            // 也不该短到不可能是有效内容。
+            val candidate = trimmed.filterNot { it.isWhitespace() }
+            if (candidate.contains(';') || candidate.length < MIN_CREDENTIAL_LENGTH) return null
+            return "$KEY_MUSIC_U=$candidate"
         }
 
         val pairs = parsePairs(trimmed)
