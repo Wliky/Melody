@@ -52,6 +52,12 @@ class MockNeteaseDataSource @Inject constructor(
     override suspend fun loginWithCookie(rawCookie: String): UserProfile? =
         throw AppError.Server("演示模式不需要登录，切到「直连模式」或自建服务后再登录")
 
+    override suspend fun sendCaptcha(phone: String): Boolean =
+        throw AppError.Server("演示模式不需要登录，切到「直连模式」或自建服务后再登录")
+
+    override suspend fun loginWithPhone(phone: String, captcha: String): UserProfile? =
+        throw AppError.Server("演示模式不需要登录，切到「直连模式」或自建服务后再登录")
+
     override suspend fun fetchProfile(): UserProfile = UserProfile(
         userId = DEMO_USER_ID,
         nickname = "Melody 演示用户",

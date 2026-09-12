@@ -29,6 +29,10 @@ enum class NeteaseEndpoint(
     /** 轮询扫码状态。同样需要移动端 UA + `/login` 来源。 */
     QR_CHECK("/api/login/qrcode/client/login", "/login/qr/check"),
 
+    /** 手机号登录：先发短信验证码，再拿验证码换登录态。 */
+    CAPTCHA_SENT("/api/sms/captcha/sent", "/captcha/sent"),
+    LOGIN_CELLPHONE("/api/w/login/cellphone", "/login/cellphone"),
+
     LOGOUT("/api/logout", "/logout"),
     ACCOUNT("/api/w/nuser/account/get", "/user/account"),
     USER_DETAIL("/api/v1/user/detail/{uid}", "/user/detail"),
@@ -48,9 +52,15 @@ enum class NeteaseEndpoint(
     SCROBBLE("", "/scrobble"),
     ;
 
-    /** 登录链路端点：需要移动端 UA 与 `/login` 来源，且允许 weapi → eapi 双链路重试。 */
-    val isQrEndpoint: Boolean
-        get() = this == QR_KEY || this == QR_CHECK || this == QR_CREATE
+    /**
+     * 登录链路端点：需要移动端 UA 与 `/login` 来源，且允许 weapi → eapi 双链路重试。
+     *
+     * 覆盖全部登录相关接口（二维码 key / 轮询 / 二维码创建 / 验证码发送 / 手机验证码登录）。
+     * 网易对登录链路的请求头极其挑剔，用桌面 UA 请求会直接 403。
+     */
+    val isLoginEndpoint: Boolean
+        get() = this == QR_KEY || this == QR_CHECK || this == QR_CREATE ||
+            this == CAPTCHA_SENT || this == LOGIN_CELLPHONE
 
     /** 该端点是否在某个模式下有实现。 */
     fun supports(mode: ApiMode): Boolean = when (mode) {

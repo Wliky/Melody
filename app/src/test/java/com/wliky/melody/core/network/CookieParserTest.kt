@@ -73,4 +73,30 @@ class CookieParserTest {
         assertEquals("****", CookieParser.mask("short"))
         assertEquals("abcd…wxyz", CookieParser.mask("abcdefghijklmnopwxyz"))
     }
+
+    @Test
+    fun `sanitize 会丢掉 Set-Cookie 属性并保留真正的 Cookie`() {
+        val raw = "MUSIC_U=abc123def456ghi789; Path=/; HttpOnly; Expires=Wed, 21 Oct 2026 07:28:00 GMT; __csrf=xyz"
+
+        assertEquals("MUSIC_U=abc123def456ghi789; __csrf=xyz", CookieParser.sanitize(raw))
+    }
+
+    @Test
+    fun `sanitize 对只有属性的串返回 null`() {
+        assertNull(CookieParser.sanitize("Path=/; HttpOnly; Secure"))
+    }
+
+    @Test
+    fun `hasMusicU 只认 MUSIC_U 不认匿名访客 Cookie`() {
+        assertTrue(CookieParser.hasMusicU("MUSIC_U=0123456789abcdef"))
+        assertFalse(CookieParser.hasMusicU("NMTID=00abcdef; _ntes_nuid=1234; WNMCID=abcd"))
+        assertFalse(CookieParser.hasMusicU(""))
+        assertFalse(CookieParser.hasMusicU(null))
+    }
+
+    @Test
+    fun `匿名访客 Cookie 不会让 musicU 返回真值`() {
+        assertNull(CookieParser.musicU("NMTID=00abcdef"))
+        assertEquals("0123456789abcdef", CookieParser.musicU("MUSIC_U=0123456789abcdef"))
+    }
 }

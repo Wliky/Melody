@@ -206,7 +206,6 @@ fun MelodyApp() {
                             HistoryScreen(
                                 viewModel = viewModel,
                                 onPlay = playerViewModel::play,
-                                onOpenSettings = { navController.navigate(Destinations.SETTINGS) },
                             )
                         }
 

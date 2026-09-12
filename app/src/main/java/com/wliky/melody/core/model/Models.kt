@@ -187,12 +187,12 @@ enum class ApiMode(val label: String, val description: String) {
         "内置示例数据，不访问网络，用于体验 UI 与播放器，不需要登录。",
     ),
     DIRECT(
-        "直连模式（默认）",
-        "客户端直接请求网易云公开接口，扫码登录即可使用，无需自建服务。",
+        "直连模式",
+        "客户端直接请求网易云公开接口（weapi/eapi 签名），无需自建服务；但登录链路受官方风控影响较大。",
     ),
     API_SERVER(
-        "自建 API 服务",
-        "把你自建的 NeteaseCloudMusicApi 等兼容服务地址填在下方，兼容性最好。",
+        "自建 API 服务（默认）",
+        "走你自己部署的兼容服务（如 api-enhanced），纯 HTTP、兼容性最好，登录也最稳。地址可在下方修改。",
     ),
 }
 

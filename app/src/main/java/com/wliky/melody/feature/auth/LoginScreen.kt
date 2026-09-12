@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
@@ -48,7 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -58,11 +59,12 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.wliky.melody.core.model.ApiMode
 
 /**
- * 登录页：两条互为兜底的通路。
+ * 登录页：三条互为兜底的通路。
  *
- * 1. **扫码**（默认）—— 不接触密码，最干净。
- * 2. **Cookie** —— 网易对扫码链路有风控（403 / 8821 会直接拒绝），命中时继续扫码
- *    没有意义，这里会主动把用户引导到粘贴 Cookie 的方式。
+ * 1. **手机验证码**（默认）—— 不碰密码，国内网络下最稳。
+ * 2. **扫码** —— 不想收短信时用。
+ * 3. **Cookie** —— 前两条都被风控挡住（403 / 8821）时的终极兜底，
+ *    直接复用浏览器里已有的登录态。
  *
  * 二维码在本地用 zxing 生成，不需要相机权限，也不会把二维码内容发往任何第三方。
  */
@@ -75,6 +77,7 @@ fun LoginScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val method by viewModel.method.collectAsStateWithLifecycle()
+    val phoneState by viewModel.phoneState.collectAsStateWithLifecycle()
     val cookieState by viewModel.cookieState.collectAsStateWithLifecycle()
     val apiMode by viewModel.apiMode.collectAsStateWithLifecycle()
 
@@ -115,10 +118,19 @@ fun LoginScreen(
         Spacer(Modifier.height(20.dp))
 
         when (method) {
+            LoginViewModel.Method.PHONE -> PhonePanel(
+                state = phoneState,
+                onPhoneChange = viewModel::onPhoneChange,
+                onCaptchaChange = viewModel::onCaptchaChange,
+                onSendCaptcha = viewModel::sendCaptcha,
+                onSubmit = viewModel::submitPhone,
+            )
+
             LoginViewModel.Method.QR -> QrPanel(
                 state = state,
                 onRefresh = viewModel::refresh,
                 onSwitchToCookie = { viewModel.switchMethod(LoginViewModel.Method.COOKIE) },
+                onSwitchToPhone = { viewModel.switchMethod(LoginViewModel.Method.PHONE) },
             )
 
             LoginViewModel.Method.COOKIE -> CookiePanel(
@@ -167,10 +179,6 @@ private fun MethodSwitcher(
     ) {
         LoginViewModel.Method.entries.forEach { entry ->
             val selected = entry == current
-            val label = when (entry) {
-                LoginViewModel.Method.QR -> "扫码登录"
-                LoginViewModel.Method.COOKIE -> "Cookie 登录"
-            }
             Box(
                 modifier = Modifier
                     .clip(CircleShape)
@@ -178,10 +186,10 @@ private fun MethodSwitcher(
                         if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
                     )
                     .clickable { onSelect(entry) }
-                    .padding(horizontal = 22.dp, vertical = 9.dp),
+                    .padding(horizontal = 18.dp, vertical = 9.dp),
             ) {
                 Text(
-                    text = label,
+                    text = entry.label,
                     style = MaterialTheme.typography.labelLarge,
                     color = if (selected) {
                         MaterialTheme.colorScheme.onPrimary
@@ -199,6 +207,7 @@ private fun QrPanel(
     state: LoginViewModel.LoginState,
     onRefresh: () -> Unit,
     onSwitchToCookie: () -> Unit,
+    onSwitchToPhone: () -> Unit,
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         when (state) {
@@ -240,16 +249,16 @@ private fun QrPanel(
                 title = "扫码登录被风控拦截",
                 message = state.message,
                 tone = NoticeTone.WARNING,
-                actionLabel = "改用 Cookie 登录",
-                onAction = onSwitchToCookie,
+                actionLabel = "改用验证码登录",
+                onAction = onSwitchToPhone,
             )
 
             is LoginViewModel.LoginState.Failed -> NoticeCard(
                 title = "获取二维码失败",
                 message = state.message,
                 tone = NoticeTone.WARNING,
-                actionLabel = "改用 Cookie 登录",
-                onAction = onSwitchToCookie,
+                actionLabel = "改用验证码登录",
+                onAction = onSwitchToPhone,
             )
 
             is LoginViewModel.LoginState.Success -> {
@@ -264,7 +273,104 @@ private fun QrPanel(
                 Spacer(Modifier.width(6.dp))
                 Text(if (state is LoginViewModel.LoginState.Expired) "刷新二维码" else "重新获取")
             }
+            TextButton(onClick = onSwitchToCookie) { Text("改用 Cookie") }
         }
+    }
+}
+
+/**
+ * 手机验证码登录面板。
+ *
+ * 国内网络环境下这是最稳的一条路：不走二维码、不碰密码，风控也最松。
+ */
+@Composable
+private fun PhonePanel(
+    state: LoginViewModel.PhoneState,
+    onPhoneChange: (String) -> Unit,
+    onCaptchaChange: (String) -> Unit,
+    onSendCaptcha: () -> Unit,
+    onSubmit: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = state.phone,
+            onValueChange = onPhoneChange,
+            singleLine = true,
+            label = { Text("手机号") },
+            placeholder = { Text("11 位中国大陆手机号") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.medium,
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = state.captcha,
+            onValueChange = onCaptchaChange,
+            singleLine = true,
+            label = { Text("短信验证码") },
+            placeholder = { Text("收到的 4~6 位数字") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+            isError = state.error != null,
+            supportingText = state.error?.let { { Text(it) } },
+            trailingIcon = {
+                TextButton(onClick = onSendCaptcha, enabled = state.canSend) {
+                    Text(
+                        text = when {
+                            state.sending -> "发送中…"
+                            state.countdown > 0 -> "${state.countdown}s"
+                            else -> "获取验证码"
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.medium,
+        )
+
+        if (state.notice != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = state.notice,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+
+        Spacer(Modifier.height(20.dp))
+
+        Button(
+            onClick = onSubmit,
+            enabled = state.canSubmit,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
+            shape = CircleShape,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+            ),
+        ) {
+            if (state.submitting) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                )
+                Spacer(Modifier.width(10.dp))
+                Text("正在登录…")
+            } else {
+                Text("登录", style = MaterialTheme.typography.labelLarge)
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text = "验证码由网易云音乐直接下发到你的手机；本客户端只把它转发给接口，不留存任何验证码。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

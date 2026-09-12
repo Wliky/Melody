@@ -83,4 +83,6 @@ jobs:
           files: out/*.apk
           generate_release_notes: true
           draft: false
-          prerelease: false
+          # 预览版规则：tag 里带 '-' 的（v0.3.0-preview.1）标记为 prerelease，
+          # 不算正式版、不会占用 Latest；正式版发布后再把预览 Release 删掉即可。
+          prerelease: ${{ contains(github.ref_name, '-') }}

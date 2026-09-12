@@ -158,16 +158,22 @@ abstract class BaseNeteaseDataSource(
             null
         }
 
-        return QrCodeInfo(key = unikey, content = officialUrl ?: qrContent(unikey, response))
+        return QrCodeInfo(
+            key = unikey,
+            content = officialUrl ?: qrContent(unikey, response),
+        )
     }
 
     /**
      * 二维码内容。
      *
-     * 新版登录链路建议带 `chainId`：服务端返回了就用服务端的，否则用本机稳定的设备标识，
-     * 保证同一台设备每次扫码的链路一致（随机值反而更容易被判为异常环境）。
+     * - 直连模式自行拼接：新版登录链路建议带 `chainId`，服务端返回了就用服务端的，
+     *   否则用本机稳定的设备标识，保证同一台设备每次扫码的链路一致。
+     * - 自建服务模式（`/login/qr/create` 拿不到 qrurl 时的兜底）用最朴素的形式：
+     *   api-enhanced 只在 `platform=web` 时才拼 chainId，多加反而可能不被识别。
      */
     private fun qrContent(unikey: String, response: JsonObject): String {
+        if (mode != ApiMode.DIRECT) return "$QR_LOGIN_BASE?codekey=$unikey"
         val chainId = response.str("chainId")?.takeIf { it.isNotBlank() }
             ?: session.deviceId()
         return "$QR_LOGIN_BASE?codekey=$unikey&chainId=$chainId"
@@ -196,10 +202,23 @@ abstract class BaseNeteaseDataSource(
             NeteaseEndpoint.QR_CHECK,
             jsonObjectOf("key" to JsonPrimitive(key), "type" to 1.toJsonPrimitive()),
         ).objOrNull() ?: return LoginPollResult(-1, "无法解析登录状态")
-        val code = response.int("code") ?: -1
+        val code = response.int("code") ?: response.obj("data").int("code") ?: -1
         val message = response.str("message") ?: response.str("msg") ?: ""
-        // cookie 可能出现在 body，也可能在 Set-Cookie（由传输层写入会话存储）
-        response.str("cookie")?.takeIf { it.isNotBlank() }?.let { session.updateCookie(it) }
+
+        // 服务端把**原始 Set-Cookie 数组** join(';') 回传（含 Path / Expires / HttpOnly 等
+        // 响应头属性），先清洗成真正的 Cookie 再落盘。匿名 Cookie 会被 SecureSessionStore 忽略，
+        // 所以「轮询了几下」绝不会把 App 变成"已登录"。
+        val rawCookie = response.str("cookie") ?: response.obj("data").str("cookie")
+        if (!rawCookie.isNullOrBlank()) {
+            CookieParser.sanitize(rawCookie)?.let { session.updateCookie(it) }
+        }
+
+        // 服务端说登录成功、我们却没拿到 MUSIC_U —— 这在自建服务回传结构变化时会出现。
+        // 不能就这么返回 803 让上层"假装登录成功"，必须明确报错并指向 Cookie 登录。
+        if (code == QR_SUCCESS_CODE && !session.hasAuthToken()) {
+            return LoginPollResult(-1, "登录成功但未取得登录凭据，请改用「Cookie 登录」")
+        }
+
         return LoginPollResult(
             code = code,
             message = if (code == 8821) "登录环境异常，请稍后重试或改用 Cookie 登录" else message,
@@ -218,9 +237,84 @@ abstract class BaseNeteaseDataSource(
             session.clear()
             throw AppError.Unauthorized("这份 Cookie 已失效，请重新从浏览器复制一份")
         }
-        // fetchProfile 期间可能合并了新的 Set-Cookie，这里把它和 userId 一起落盘
-        session.saveSession(session.cookie().ifBlank { normalized }, profile.userId)
+        // fetchProfile 期间可能合并了新的 Set-Cookie，这里把 userId 补上
+        session.updateUserId(profile.userId)
+        if (!session.hasAuthToken()) session.saveSession(normalized, profile.userId)
         return profile
+    }
+
+    override suspend fun sendCaptcha(phone: String): Boolean {
+        val number = normalizePhone(phone)
+        val response = call(
+            NeteaseEndpoint.CAPTCHA_SENT,
+            jsonObjectOf(
+                "phone" to JsonPrimitive(number),
+                "ctcode" to JsonPrimitive(COUNTRY_CODE),
+            ),
+        ).objOrNull() ?: throw AppError.Server("验证码发送失败，服务端没有返回内容")
+
+        val code = response.int("code") ?: -1
+        if (code != SUCCESS_CODE) {
+            throw AppError.Server(describeLoginFailure(code, messageOf(response), "验证码发送"))
+        }
+        return true
+    }
+
+    override suspend fun loginWithPhone(phone: String, captcha: String): UserProfile? {
+        val number = normalizePhone(phone)
+        val code = captcha.filter { it.isDigit() }
+        if (code.length < 4) throw AppError.Parse("请填写收到的短信验证码")
+
+        val response = call(
+            NeteaseEndpoint.LOGIN_CELLPHONE,
+            jsonObjectOf(
+                "phone" to JsonPrimitive(number),
+                "countrycode" to JsonPrimitive(COUNTRY_CODE),
+                "captcha" to JsonPrimitive(code),
+            ),
+        ).objOrNull() ?: throw AppError.Server("登录失败，服务端没有返回内容")
+
+        val resultCode = response.int("code") ?: -1
+        if (resultCode != SUCCESS_CODE) {
+            throw AppError.Unauthorized(describeLoginFailure(resultCode, messageOf(response), "登录"))
+        }
+
+        // 自建服务把登录 Cookie 放在 body 里回传（同样是 Set-Cookie 原始串，需要清洗）；
+        // 直连模式则由 Set-Cookie 头经 mergeCookies 写入。
+        response.str("cookie")?.takeIf { it.isNotBlank() }
+            ?.let { CookieParser.sanitize(it) }
+            ?.let { session.updateCookie(it) }
+
+        val profile = fetchProfile()
+        if (profile == null || !session.hasAuthToken()) {
+            session.clear()
+            throw AppError.Unauthorized("登录成功但没有取得有效凭据，请重试或改用 Cookie 登录")
+        }
+        session.updateUserId(profile.userId)
+        return profile
+    }
+
+    private fun normalizePhone(phone: String): String {
+        val digits = phone.filter { it.isDigit() }
+        if (digits.length != 11 || !digits.startsWith("1")) {
+            throw AppError.Parse("请输入 11 位中国大陆手机号")
+        }
+        return digits
+    }
+
+    private fun messageOf(response: JsonObject): String? =
+        response.str("message") ?: response.str("msg") ?: response.str("data").orEmpty().takeIf { it.isNotBlank() }
+
+    /** 把登录相关的错误码翻译成「用户知道下一步做什么」的话。 */
+    private fun describeLoginFailure(code: Int, message: String?, action: String): String = when (code) {
+        501 -> "手机号格式不正确"
+        502 -> "该账号密码错误（本客户端只支持验证码登录）"
+        503 -> "验证码错误或已过期，请重新获取"
+        504 -> "该手机号还没有注册网易云音乐"
+        8821 -> "触发了登录风控，请稍后再试，或改用 Cookie 登录"
+        -460 -> "当前网络环境被判定为异常（-460），请关闭代理 / VPN 后重试"
+        !message.isNullOrBlank() -> "$action 失败：$message"
+        else -> "$action 失败（错误码 $code）"
     }
 
     override suspend fun fetchProfile(): UserProfile? {
@@ -499,30 +593,28 @@ abstract class BaseNeteaseDataSource(
     /** 基类默认不支持上报，由 [ApiServerNeteaseDataSource] 覆盖。 */
     override suspend fun reportPlayback(events: List<PlaybackEvent>): Boolean = false
 
+    /**
+     * 把响应的 Set-Cookie 合并进会话。
+     *
+     * **只有合并结果里带 `MUSIC_U` 才会落盘**。服务端对匿名请求也会下发
+     * `NMTID` / `_ntes_nuid` / `WNMCID` 之类的访客 Cookie，早先无条件写入会话，
+     * 结果「请求过一次接口」就等于「已登录」——这正是"点登录就显示已登录"的根因。
+     * 已经在登录态下时，合并结果天然带着原本的 MUSIC_U，所以正常的会话刷新不受影响。
+     */
     protected fun mergeCookies(cookies: List<Pair<String, String>>) {
         if (cookies.isEmpty()) return
-        val current = parseCookie(session.cookie()).toMutableMap()
+        val current = CookieParser.parsePairs(session.cookie())
         var changed = false
         cookies.forEach { (name, value) ->
-            if (name.isBlank()) return@forEach
+            if (name.isBlank() || value.isBlank()) return@forEach
             if (current[name] != value) {
                 current[name] = value
                 changed = true
             }
         }
         if (!changed) return
-        val merged = current.entries.joinToString("; ") { "${it.key}=${it.value}" }
-        session.updateCookie(merged)
+        session.updateCookie(CookieParser.join(current))
     }
-
-    protected fun parseCookie(raw: String): Map<String, String> =
-        raw.split(';')
-            .mapNotNull { part ->
-                val trimmed = part.trim()
-                if (trimmed.isEmpty() || !trimmed.contains('=')) null
-                else trimmed.substringBefore('=').trim() to trimmed.substringAfter('=').trim()
-            }
-            .toMap()
 
     protected fun requirePath(path: String, endpointName: String): String {
         if (path.isBlank()) {
@@ -534,3 +626,12 @@ abstract class BaseNeteaseDataSource(
 
 /** 扫码登录页地址；把 unikey 拼在 codekey 上即可被官方 App 识别。 */
 private const val QR_LOGIN_BASE = "https://music.163.com/login"
+
+/** 轮询二维码状态时表示「已确认登录」的返回码。 */
+private const val QR_SUCCESS_CODE = 803
+
+/** 接口通用的成功码。 */
+private const val SUCCESS_CODE = 200
+
+/** 手机号登录默认区号：只支持中国大陆号码。 */
+private const val COUNTRY_CODE = "86"

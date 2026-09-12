@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.wliky.melody.core.network.CookieParser
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -16,6 +17,11 @@ import kotlinx.coroutines.flow.asStateFlow
  *
  * Key 由 Android Keystore 生成并保管（[MasterKey]），文件内容再用 AES256-SIV/GCM 加密，
  * 明文 Cookie 不落盘、不进日志。此文件已排除在云备份与设备迁移之外，见 res/xml/backup_rules.xml。
+ *
+ * **登录态的唯一判据是 Cookie 里有没有 `MUSIC_U`**（见 [CookieParser.hasMusicU]）。
+ * 不能看「Cookie 是否非空」：服务端对匿名请求也会下发 `NMTID` / `_ntes_nuid` 等访客 Cookie，
+ * 一旦据此判定登录，就会出现「一进登录页就显示已登录」。因此这里**只持久化带登录态的
+ * Cookie**，匿名 Cookie 一律丢弃。
  */
 @Singleton
 class SecureSessionStore @Inject constructor(
@@ -35,11 +41,14 @@ class SecureSessionStore @Inject constructor(
         )
     }
 
-    private val _loggedIn = MutableStateFlow(readCookie().isNotBlank())
+    private val _loggedIn = MutableStateFlow(CookieParser.hasMusicU(readCookie()))
     val loggedIn: StateFlow<Boolean> = _loggedIn.asStateFlow()
 
-    /** 完整 Cookie 串，用于直连模式请求头。 */
+    /** 完整 Cookie 串，用于请求头 / 自建服务的 `cookie` 参数。 */
     fun cookie(): String = readCookie()
+
+    /** 当前是否持有可用的登录凭据。 */
+    fun hasAuthToken(): Boolean = CookieParser.hasMusicU(readCookie())
 
     fun userId(): String = prefs.getString(KEY_USER_ID, "").orEmpty()
 
@@ -48,14 +57,25 @@ class SecureSessionStore @Inject constructor(
             .putString(KEY_COOKIE, cookie)
             .putString(KEY_USER_ID, userId)
             .apply()
-        _loggedIn.value = cookie.isNotBlank()
+        _loggedIn.value = CookieParser.hasMusicU(cookie)
     }
 
-    /** 登录态变化（例如接口返回 301 需要重新登录）时局部更新 cookie。 */
+    /**
+     * 用服务端回传的 Cookie 刷新会话。
+     *
+     * 只有**确实带着登录态**的 Cookie 才会被采纳；匿名访客 Cookie（`NMTID` 等）直接忽略，
+     * 这样「请求过一次接口」永远不会被误判成「已登录」。
+     */
     fun updateCookie(cookie: String) {
-        if (cookie.isBlank()) return
+        if (!CookieParser.hasMusicU(cookie)) return
         prefs.edit().putString(KEY_COOKIE, cookie).apply()
         _loggedIn.value = true
+    }
+
+    /** 只更新 userId，不动 Cookie（例如拉取用户信息后补上 uid）。 */
+    fun updateUserId(userId: String) {
+        if (userId.isBlank()) return
+        prefs.edit().putString(KEY_USER_ID, userId).apply()
     }
 
     fun clear() {

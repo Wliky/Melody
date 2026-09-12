@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.CloudSync
-import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material3.FilterChip
@@ -45,8 +44,9 @@ import com.wliky.melody.core.model.AudioQuality
 /**
  * 设置。所有选项都收在分组卡片里，不再是一长条分割线列表。
  *
- * 关于同步：这里是**唯一**能看到「自动同步」开关的地方，而且没有任何手动触发按钮
- * —— 播放行为一产生就会自动入队并提交（见 SyncManager）。
+ * 关于同步：听歌记录的同步是**后台自动行为**，界面上只留一个「同步听歌记录」开关，
+ * 不摆状态、不摆统计、更没有任何手动触发按钮 —— 播放行为一产生就会自动入队并提交
+ * （见 SyncManager）。
  */
 @Composable
 fun SettingsScreen(
@@ -56,7 +56,6 @@ fun SettingsScreen(
 ) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val loggedIn by viewModel.loggedIn.collectAsStateWithLifecycle()
-    val reportSupported by viewModel.reportSupported.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
 
     LaunchedEffect(message) {
@@ -135,22 +134,16 @@ fun SettingsScreen(
         }
 
         item {
-            SettingsGroup(title = "数据与隐私") {
+            SettingsGroup(title = "播放与记录") {
                 SettingItem(
-                    title = "自动同步听歌记录",
-                    subtitle = autoSyncDescription(
-                        reportEnabled = settings.reportPlayback,
-                        supported = reportSupported,
-                    ),
+                    title = "同步听歌记录",
+                    subtitle = autoSyncDescription(settings.reportPlayback),
                     icon = Icons.Rounded.CloudSync,
-                    onClick = {
-                        if (reportSupported) viewModel.setReportPlayback(!settings.reportPlayback)
-                    },
+                    onClick = { viewModel.setReportPlayback(!settings.reportPlayback) },
                     trailing = {
                         Switch(
-                            checked = settings.reportPlayback && reportSupported,
-                            enabled = reportSupported,
-                            onCheckedChange = { if (reportSupported) viewModel.setReportPlayback(it) },
+                            checked = settings.reportPlayback,
+                            onCheckedChange = viewModel::setReportPlayback,
                         )
                     },
                 )
@@ -159,12 +152,6 @@ fun SettingsScreen(
                     subtitle = "清理歌词等内存缓存（音频文件不做缓存）",
                     icon = Icons.Rounded.CleaningServices,
                     onClick = viewModel::clearCaches,
-                )
-                SettingItem(
-                    title = "清空待同步事件",
-                    subtitle = "删除本机尚未提交的播放事件",
-                    icon = Icons.Rounded.DeleteSweep,
-                    onClick = viewModel::clearSyncQueue,
                 )
             }
         }
@@ -224,14 +211,12 @@ fun SettingsScreen(
  * 关键在于如实告知：同步是自动的，但直连模式下官方没有对第三方开放上报通道，
  * 因此那种情况下只有本地记录。
  */
-private fun autoSyncDescription(reportEnabled: Boolean, supported: Boolean): String = when {
-    !supported ->
-        "已开启，但当前数据源没有可用的上报通道：播放记录只保存在本机（直连模式属正常情况）"
-
-    reportEnabled -> "已开启：播放后自动提交，无需任何手动操作"
-
-    else -> "已关闭：播放记录仍然照常保存在本机，只是不再上传"
-}
+private fun autoSyncDescription(reportEnabled: Boolean): String =
+    if (reportEnabled) {
+        "已开启：播放后自动提交，无需任何手动操作；关掉只是停止上传，本地记录不受影响"
+    } else {
+        "已关闭：播放记录仍然照常保存在本机，只是不再上传"
+    }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

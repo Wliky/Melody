@@ -70,6 +70,18 @@ class AuthRepository @Inject constructor(
         profile
     }
 
+    /** 发送登录短信验证码。 */
+    suspend fun sendCaptcha(phone: String): AppResult<Boolean> = appRunCatching {
+        providers.current().sendCaptcha(phone)
+    }
+
+    /** 手机号 + 验证码登录。成功后用户信息立即就位，不需要再拉一次。 */
+    suspend fun loginWithPhone(phone: String, captcha: String): AppResult<UserProfile?> = appRunCatching {
+        val profile = providers.current().loginWithPhone(phone, captcha)
+        _profile.value = profile
+        profile
+    }
+
     /**
      * 轮询登录状态。成功（803）后立即拉取用户信息，建立 Session。
      */
@@ -81,14 +93,29 @@ class AuthRepository @Inject constructor(
         result
     }
 
+    /**
+     * 拉取用户信息。
+     *
+     * 这里同时承担「会话体检」的职责：拿着凭据却拉不到 profile，说明这份登录态已经失效，
+     * 直接清掉并让 UI 回到未登录状态，而不是留着一个"看起来已登录、实际什么都拉不到"的假象。
+     */
     suspend fun loadProfile(force: Boolean = false): AppResult<UserProfile?> {
         if (!force) {
             _profile.value?.let { return AppResult.Success(it) }
         }
+        if (!session.hasAuthToken()) {
+            _profile.value = null
+            return AppResult.Success(null)
+        }
         return appRunCatching {
             val profile = providers.current().fetchProfile()
-            _profile.value = profile
-            profile
+            if (profile == null) {
+                invalidateSession()
+                null
+            } else {
+                _profile.value = profile
+                profile
+            }
         }
     }
 

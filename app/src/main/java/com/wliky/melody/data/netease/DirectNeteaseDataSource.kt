@@ -5,6 +5,7 @@ import com.wliky.melody.core.model.ApiMode
 import com.wliky.melody.core.model.AudioQuality
 import com.wliky.melody.core.model.SongUrl
 import com.wliky.melody.core.network.ApiClient
+import com.wliky.melody.core.network.CookieParser
 import com.wliky.melody.core.network.arrayOrNull
 import com.wliky.melody.core.network.int
 import com.wliky.melody.core.network.jsonObjectOf
@@ -67,7 +68,7 @@ class DirectNeteaseDataSource @Inject constructor(
     }
 
     override suspend fun request(endpoint: NeteaseEndpoint, payload: JsonObject): JsonElement {
-        if (!endpoint.isQrEndpoint) return requestViaWeapi(endpoint, payload, mobileHeaders = false)
+        if (!endpoint.isLoginEndpoint) return requestViaWeapi(endpoint, payload, mobileHeaders = false)
 
         // 登录链路：weapi 优先，失败或拿不到关键字段时用 eapi 再试一次。
         val viaWeapi = runCatching { requestViaWeapi(endpoint, payload, mobileHeaders = true) }
@@ -89,7 +90,7 @@ class DirectNeteaseDataSource @Inject constructor(
     ): JsonElement {
         val path = NeteaseCrypto.transformPath(requirePath(endpoint.directPath, endpoint.name), target = "weapi")
         val cookie = session.cookie()
-        val csrf = parseCookie(cookie)["__csrf"].orEmpty()
+        val csrf = CookieParser.parsePairs(cookie)["__csrf"].orEmpty()
         val body = if (csrf.isBlank()) payload else JsonObject(payload + ("csrf_token" to JsonPrimitive(csrf)))
         val form = NeteaseCrypto.weapi(body.toString())
         val url = "$WEB_HOST$path?csrf_token=$csrf"
@@ -120,7 +121,7 @@ class DirectNeteaseDataSource @Inject constructor(
      */
     private fun eapiHeader(): JsonObject {
         val now = System.currentTimeMillis()
-        val cookie = parseCookie(session.cookie())
+        val cookie = CookieParser.parsePairs(session.cookie())
         return JsonObject(
             buildMap {
                 put("osver", JsonPrimitive("13"))

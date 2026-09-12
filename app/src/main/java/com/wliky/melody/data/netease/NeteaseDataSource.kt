@@ -48,6 +48,18 @@ interface NeteaseDataSource {
      */
     suspend fun loginWithCookie(rawCookie: String): UserProfile?
 
+    /**
+     * 给手机号发送登录短信验证码。返回是否发送成功。
+     * 支持 `/captcha/sent` 的模式（默认的自建 API 服务）才有实现。
+     */
+    suspend fun sendCaptcha(phone: String): Boolean
+
+    /**
+     * 手机号 + 短信验证码登录，成功后建立会话并返回用户信息。
+     * 这是国内网络环境下最稳的一条通路：不走二维码、不碰密码。
+     */
+    suspend fun loginWithPhone(phone: String, captcha: String): UserProfile?
+
     suspend fun fetchProfile(): UserProfile?
     suspend fun logout()
 

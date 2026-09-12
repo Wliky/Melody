@@ -9,7 +9,6 @@ import com.wliky.melody.core.model.ApiMode
 import com.wliky.melody.core.model.AudioQuality
 import com.wliky.melody.data.repository.AuthRepository
 import com.wliky.melody.data.repository.MusicRepository
-import com.wliky.melody.data.repository.SyncRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,7 +22,6 @@ import kotlinx.coroutines.launch
 class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val authRepository: AuthRepository,
-    private val syncRepository: SyncRepository,
     private val musicRepository: MusicRepository,
 ) : ViewModel() {
 
@@ -34,10 +32,6 @@ class SettingsViewModel @Inject constructor(
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
-
-    /** 当前数据源是否支持播放记录上报（用于把开关的可用性说清楚）。 */
-    private val _reportSupported = MutableStateFlow(false)
-    val reportSupported: StateFlow<Boolean> = _reportSupported.asStateFlow()
 
     fun setThemeMode(mode: ThemeMode) = launchSetting { settingsRepository.setThemeMode(mode) }
 
@@ -64,33 +58,11 @@ class SettingsViewModel @Inject constructor(
         _message.value = "已清理缓存"
     }
 
-    fun clearSyncQueue() {
-        viewModelScope.launch {
-            syncRepository.clear()
-            _message.value = "已清空同步队列"
-        }
-    }
-
     fun consumeMessage() {
         _message.value = null
     }
 
-    fun refreshCapabilities() {
-        viewModelScope.launch {
-            // 目前只有「自建 API 服务」模式提供了明确、可控的上报接口。
-            // 直连模式下不硬编码不可控的私有接口（见文档 §9）。
-            _reportSupported.value = settings.value.apiMode == ApiMode.API_SERVER
-        }
-    }
-
     private fun launchSetting(block: suspend () -> Unit) {
-        viewModelScope.launch {
-            block()
-            refreshCapabilities()
-        }
-    }
-
-    init {
-        refreshCapabilities()
+        viewModelScope.launch { block() }
     }
 }

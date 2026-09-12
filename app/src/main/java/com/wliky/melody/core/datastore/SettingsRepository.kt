@@ -25,19 +25,32 @@ enum class ThemeMode(val label: String) {
 data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val dynamicColor: Boolean = true,
-    val apiMode: ApiMode = ApiMode.DIRECT,
-    /** 仅 [ApiMode.API_SERVER] 使用，例如 http://192.168.1.10:3000 */
-    val apiBaseUrl: String = "",
+    /**
+     * 默认走**自建 API 服务**。
+     *
+     * 直连模式要自己实现 weapi / eapi 签名，网易一改风控就整条链路失效（扫码登录就是这么坏的）；
+     * 自建服务是纯 HTTP，兼容性最好，出问题也能自己改服务端。地址见 [DEFAULT_API_BASE_URL]，
+     * 用户可以在「设置 → 数据源」里改成自己部署的实例。
+     */
+    val apiMode: ApiMode = ApiMode.API_SERVER,
+    /** 仅 [ApiMode.API_SERVER] 使用；留空则回落到 [DEFAULT_API_BASE_URL]。 */
+    val apiBaseUrl: String = DEFAULT_API_BASE_URL,
     val audioQuality: AudioQuality = AudioQuality.EXHIGH,
     /**
      * 听歌记录自动同步。
      *
      * 默认开启：播放行为无需任何手动操作即自动入队并提交（见 SyncManager）。
      * 关闭它只会停止「上报」，本地播放历史始终照常记录。
-     * 直连模式下官方没有开放给第三方的上报通道，因此实际只有自建 API 服务模式会真正上传。
      */
     val reportPlayback: Boolean = true,
 )
+
+/**
+ * 默认的公共 API 服务地址（本项目作者部署的 api-enhanced 实例，见
+ * https://github.com/Wliky/api-enhanced ）。它只做接口转发，不保存你的登录凭据；
+ * 想用自己的服务把它换掉即可，扫码与 Cookie 登录都会走这里。
+ */
+const val DEFAULT_API_BASE_URL = "https://music.api.005201.xyz"
 
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "melody_settings")
 
@@ -63,8 +76,8 @@ class SettingsRepository @Inject constructor(
         AppSettings(
             themeMode = prefs[Keys.themeMode].toEnum(ThemeMode.SYSTEM),
             dynamicColor = prefs[Keys.dynamicColor] ?: true,
-            apiMode = prefs[Keys.apiMode].toEnum(ApiMode.DIRECT),
-            apiBaseUrl = prefs[Keys.apiBaseUrl].orEmpty(),
+            apiMode = prefs[Keys.apiMode].toEnum(ApiMode.API_SERVER),
+            apiBaseUrl = prefs[Keys.apiBaseUrl].orEmpty().trim().ifBlank { DEFAULT_API_BASE_URL },
             audioQuality = prefs[Keys.audioQuality].toEnum(AudioQuality.EXHIGH),
             reportPlayback = prefs[Keys.reportPlayback] ?: true,
         )
