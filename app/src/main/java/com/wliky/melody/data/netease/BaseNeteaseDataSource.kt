@@ -618,7 +618,10 @@ abstract class BaseNeteaseDataSource(
 
     /**
      * 最近播放（听歌足迹）：走官方 /api/record/recent/song，需要登录态。
-     * 返回结构为 `data.list` 数组（每项是 song 对象），也可能是顶层数组。
+     *
+     * 该接口返回 `data.list`，每项是 `{ data: { ...song 字段 }, resourceType, playTime }`
+     * 的结构 —— 歌曲对象嵌套在 `data` 字段里，而不是平铺。因此这里先对每一项做「解包」：
+     * 优先取 `data` 子对象，其次取 `song` 子对象，最后才当平铺 song 处理。
      */
     override suspend fun recentSongs(): List<Song> {
         if (!session.hasAuthToken()) return emptyList()
@@ -627,7 +630,20 @@ abstract class BaseNeteaseDataSource(
             ?: response.obj("data").arr("list")
             ?: response.obj("data").arr("songs")
             ?: JsonArray(emptyList())
-        return songs(array)
+        return songsFromRecent(array)
+    }
+
+    /** 解包「最近播放」接口里每项的嵌套结构（data / song 字段），再转成 Song。 */
+    private fun songsFromRecent(array: JsonArray): List<Song> {
+        val unwrapped = JsonArray(
+            array.mapNotNull { el ->
+                val obj = el.objOrNull() ?: return@mapNotNull null
+                // 官方 record/recent/song 每项是 { data: {song}, ... }；
+                // 部分线路是 { song: {song}, ... } 或平铺 song。
+                obj.obj("data") ?: obj.obj("song") ?: obj
+            },
+        )
+        return songs(unwrapped)
     }
 
     /** 基类默认不支持上报，由 [ApiServerNeteaseDataSource] 覆盖。 */

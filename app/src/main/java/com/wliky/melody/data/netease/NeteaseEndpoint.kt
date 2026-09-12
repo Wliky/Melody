@@ -70,9 +70,12 @@ enum class NeteaseEndpoint(
     /**
      * 移动端标识接口：这些接口的路径带 `/api/w/` 前缀，本质是移动端接口，
      * 用桌面 UA 请求容易被风控（403 / -460 Cheating）拦掉。请求时需换移动端 UA。
+     *
+     * RECENT_SONG（/api/record/recent/song）也是移动端接口：它是官方 App「最近播放」
+     * 的数据源，用桌面 UA 请求会返回空或被风控，导致「最近播放」区块拿不到歌曲数据。
      */
     val requiresMobileHeader: Boolean
-        get() = this == ACCOUNT || this == LOGIN_CELLPHONE
+        get() = this == ACCOUNT || this == LOGIN_CELLPHONE || this == RECENT_SONG
 
     /** 该端点是否在某个模式下有实现。 */
     fun supports(mode: ApiMode): Boolean = when (mode) {

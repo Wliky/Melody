@@ -263,14 +263,15 @@ private fun ProfileHero(profile: UserProfile?, onLogout: () -> Unit) {
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            text = profile?.nickname ?: "已登录",
+            text = profile?.nickname ?: "网易云用户",
             style = MaterialTheme.typography.headlineSmall,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            text = profile?.signature?.takeIf { it.isNotBlank() } ?: "欢迎回来",
+            text = profile?.signature?.takeIf { it.isNotBlank() }
+                ?: if (profile == null) "昵称与头像加载中，稍后自动更新" else "欢迎回来",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 2,

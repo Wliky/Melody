@@ -1,6 +1,5 @@
 package com.wliky.melody.feature.auth
 
-import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -19,12 +18,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Cookie
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Phone
-import androidx.compose.material.icons.rounded.QrCode2
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -45,21 +42,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.Image
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.wliky.melody.core.model.QrCodeInfo
 
 /**
- * 登录页（v0.4.0-preview.4+）：三种原生登录方式。
+ * 登录页（v0.4.0-preview.5+）：两种原生登录方式。
  *
  * 用内部 [LoginStage] 切换（不新增导航目的地）：
- *  - ENTRY  —— 三个并列入口：扫码登录 / 手机号登录 / Cookie 登录
- *  - QR     —— 真二维码（zxing 本地生成），手机网易云 App 扫码，自动轮询
+ *  - ENTRY  —— 两个并列入口：手机号登录 / Cookie 登录
  *  - PHONE  —— 手机号 + 短信验证码
  *  - COOKIE —— 粘贴 MUSIC_U
  */
@@ -82,16 +74,8 @@ fun LoginScreen(
         LoginStage.ENTRY -> {
             LoginEntryScreen(
                 onBack = onBack,
-                onScanLogin = { stage = LoginStage.QR },
                 onPhoneLogin = { stage = LoginStage.PHONE },
                 onCookieLogin = { stage = LoginStage.COOKIE },
-            )
-        }
-
-        LoginStage.QR -> {
-            QrLoginScreen(
-                viewModel = viewModel,
-                onBack = { stage = LoginStage.ENTRY },
             )
         }
 
@@ -111,14 +95,13 @@ fun LoginScreen(
     }
 }
 
-private enum class LoginStage { ENTRY, QR, PHONE, COOKIE }
+private enum class LoginStage { ENTRY, PHONE, COOKIE }
 
 // ------------------------------------------------------------------ 入口页
 
 @Composable
 private fun LoginEntryScreen(
     onBack: () -> Unit,
-    onScanLogin: () -> Unit,
     onPhoneLogin: () -> Unit,
     onCookieLogin: () -> Unit,
 ) {
@@ -184,16 +167,6 @@ private fun LoginEntryScreen(
                 .padding(horizontal = 24.dp, vertical = 16.dp),
         ) {
             Button(
-                onClick = onScanLogin,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(14.dp),
-            ) {
-                Icon(Icons.Rounded.QrCode2, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("扫码登录", style = MaterialTheme.typography.titleMedium)
-            }
-            Spacer(Modifier.height(12.dp))
-            OutlinedButton(
                 onClick = onPhoneLogin,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(14.dp),
@@ -211,175 +184,6 @@ private fun LoginEntryScreen(
                 Icon(Icons.Rounded.Cookie, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text("Cookie 登录", style = MaterialTheme.typography.titleMedium)
-            }
-        }
-    }
-}
-
-// ------------------------------------------------------------------ 扫码登录
-
-@Composable
-private fun QrLoginScreen(
-    viewModel: LoginViewModel,
-    onBack: () -> Unit,
-) {
-    val qrState by viewModel.qrState.collectAsStateWithLifecycle()
-
-    BackHandler(onBack = onBack)
-
-    // 进入即开始扫码登录；离开时停止轮询。
-    LaunchedEffect(Unit) {
-        viewModel.startQrLogin()
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
-            .statusBarsPadding()
-            .navigationBarsPadding(),
-    ) {
-        LoginTopBar(title = "扫码登录", onBack = onBack)
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Spacer(Modifier.height(24.dp))
-            Text(
-                text = "使用网易云音乐 App 扫码登录",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-
-            Spacer(Modifier.height(24.dp))
-
-            // 二维码区域。
-            Box(
-                modifier = Modifier.size(220.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                when (val s = qrState) {
-                    is LoginViewModel.QrState.Loading -> {
-                        CircularProgressIndicator()
-                    }
-                    is LoginViewModel.QrState.WaitingScan -> {
-                        QrCodeImage(s.qr)
-                    }
-                    is LoginViewModel.QrState.WaitingConfirm -> {
-                        QrCodeImage(s.qr)
-                    }
-                    is LoginViewModel.QrState.Expired -> {
-                        QrPlaceholder(
-                            text = s.message,
-                            onRetry = viewModel::startQrLogin,
-                        )
-                    }
-                    is LoginViewModel.QrState.Failed -> {
-                        QrPlaceholder(
-                            text = s.message,
-                            onRetry = viewModel::startQrLogin,
-                        )
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(20.dp))
-
-            when (val s = qrState) {
-                is LoginViewModel.QrState.Loading -> {
-                    Text(
-                        text = "正在获取二维码…",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                is LoginViewModel.QrState.WaitingScan -> {
-                    Text(
-                        text = "打开手机网易云 App，点击右上角「扫一扫」",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
-                }
-                is LoginViewModel.QrState.WaitingConfirm -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Rounded.CheckCircle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = "已扫码，请在手机上确认登录",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-                else -> {}
-            }
-        }
-    }
-}
-
-/** 本地生成二维码位图（zxing），白底黑码。 */
-private fun generateQrBitmap(content: String, sizePx: Int = 512): Bitmap? = runCatching {
-    val matrix = com.google.zxing.qrcode.QRCodeWriter()
-        .encode(content, com.google.zxing.BarcodeFormat.QR_CODE, sizePx, sizePx)
-    val bmp = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.RGB_565)
-    for (x in 0 until sizePx) {
-        for (y in 0 until sizePx) {
-            bmp.setPixel(x, y, if (matrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
-        }
-    }
-    bmp
-}.getOrNull()
-
-@Composable
-private fun QrCodeImage(qr: QrCodeInfo) {
-    val bitmap = remember(qr.content) { generateQrBitmap(qr.content) }
-    if (bitmap != null) {
-        Image(
-            bitmap = bitmap.asImageBitmap(),
-            contentDescription = "登录二维码",
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.White),
-            contentScale = ContentScale.Fit,
-        )
-    } else {
-        QrPlaceholder(text = "二维码生成失败", onRetry = null)
-    }
-}
-
-@Composable
-private fun QrPlaceholder(
-    text: String,
-    onRetry: (() -> Unit)?,
-) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(
-            Icons.Rounded.WarningAmber,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(40.dp),
-        )
-        Spacer(Modifier.height(12.dp))
-        Text(
-            text = text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        if (onRetry != null) {
-            Spacer(Modifier.height(12.dp))
-            TextButton(onClick = onRetry) {
-                Text("重新获取")
             }
         }
     }

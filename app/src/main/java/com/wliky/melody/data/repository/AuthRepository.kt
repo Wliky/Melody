@@ -5,8 +5,6 @@ import com.wliky.melody.core.common.AppResult
 import com.wliky.melody.core.common.DispatchersProvider
 import com.wliky.melody.core.common.appRunCatching
 import com.wliky.melody.core.common.toAppError
-import com.wliky.melody.core.model.LoginPollResult
-import com.wliky.melody.core.model.QrCodeInfo
 import com.wliky.melody.core.model.UserProfile
 import com.wliky.melody.core.security.SecureSessionStore
 import com.wliky.melody.data.netease.NeteaseProviderResolver
@@ -54,35 +52,13 @@ class AuthRepository @Inject constructor(
 
     fun userId(): String = session.userId()
 
-    suspend fun requestQrCode(): AppResult<QrCodeInfo> = appRunCatching {
-        providers.current().requestQrCode()
-    }
-
     /**
      * 用浏览器里已有的登录凭据（Cookie 中的 `MUSIC_U`）登录。
      *
-     * 扫码链路被风控拦截时这是最可靠的通路：不触发登录验证，直接复用已有登录态。
+     * 这是最可靠的通路：不触发登录验证，直接复用已有登录态。
+     * 登录成功与否只看会话里有没有 MUSIC_U，用户信息由后续页面异步补拉。
      */
     suspend fun loginWithCookie(rawCookie: String): AppResult<UserProfile?> = appRunCatching {
-        val profile = providers.current().loginWithCookie(rawCookie)
-        _profile.value = profile
-        profile
-    }
-
-    /**
-     * 完成 WebView 登录。
-     *
-     * 这是 v0.3.0-preview.3 之后的主流程：登录页就是一个加载 `music.163.com/m/login`
-     * 的 WebView，用户在网易官方页面里完成扫码 / 验证码 / 邮箱登录，
-     * 我们从 `WebView` 的 `CookieManager` 里把整套 Cookie（含 `MUSIC_U`）拿出来，
-     * 走和 Cookie 登录完全一致的解析、保存、拉用户信息链路。
-     *
-     * 这样做有两个好处：
-     *  1. 不依赖自建服务暴露 `login/qr/check`、`login/cellphone` 等接口，
-     *     官方风控由网易官方页面承担，再没有「403 / 8821」的兜底烦恼。
-     *  2. 不需要逆向任何 eapi/weapi 加密协议，纯粹是浏览器行为。
-     */
-    suspend fun completeWebLogin(rawCookie: String): AppResult<UserProfile?> = appRunCatching {
         val profile = providers.current().loginWithCookie(rawCookie)
         _profile.value = profile
         profile
@@ -98,17 +74,6 @@ class AuthRepository @Inject constructor(
         val profile = providers.current().loginWithPhone(phone, captcha)
         _profile.value = profile
         profile
-    }
-
-    /**
-     * 轮询登录状态。成功（803）后立即拉取用户信息，建立 Session。
-     */
-    suspend fun pollLogin(key: String): AppResult<LoginPollResult> = appRunCatching {
-        val result = providers.current().pollQrLogin(key)
-        if (result.isSuccess) {
-            loadProfile(force = true)
-        }
-        result
     }
 
     /**

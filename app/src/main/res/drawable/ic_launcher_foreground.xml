@@ -4,20 +4,22 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- 双八分音符 -->
+    <!-- Melody 原创图标前景：一个简洁现代的抽象音符（符头 + 符杆 + 飘动符尾）。
+         纯原创绘制，不复制任何第三方 logo。白色，居中。 -->
+    <!-- 符头（实心椭圆，微微倾斜） -->
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M32,66 a9,9 0 1,0 18,0 a9,9 0 1,0 -18,0 z" />
+        android:pathData="M36,70 C36,62.5 42.5,56.5 50,56.5 C57.5,56.5 64,62.5 64,70 C64,77.5 57.5,83.5 50,83.5 C42.5,83.5 36,77.5 36,70 Z" />
+    <!-- 符杆 -->
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M56,61 a9,9 0 1,0 18,0 a9,9 0 1,0 -18,0 z" />
+        android:pathData="M60,38 L67,38 L67,70 L60,70 Z" />
+    <!-- 符尾（飘动的曲线，向右上扬起） -->
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M48,40 h4 v26 h-4 z" />
+        android:pathData="M67,38 C72,40 76,44 78,50 C79,53 79,56 78,59 L70,57 C71,54 71,50 69,46 C67,42 64,39 60,38 Z" />
+    <!-- 右侧第二条符杆（构成双声部感） -->
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M72,35 h4 v26 h-4 z" />
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M48,40 L76,35 L76,41 L48,46 z" />
+        android:fillColor="#B3FFFFFF"
+        android:pathData="M74,44 L79,44 L79,66 L74,66 Z" />
 </vector>

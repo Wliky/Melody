@@ -4,8 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.wliky.melody.core.common.AppError
 import com.wliky.melody.core.common.fold
-import com.wliky.melody.core.model.LoginPollResult
-import com.wliky.melody.core.model.QrCodeInfo
 import com.wliky.melody.core.network.CookieParser
 import com.wliky.melody.data.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -18,11 +16,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * 登录（v0.4.0-preview.4+）：三种原生登录方式的状态机。
+ * 登录（v0.4.0-preview.5+）：两种原生登录方式的状态机。
  *
- *  1. **扫码登录**：请求官方二维码 key → 本地生成二维码 → 轮询状态（800/801/802/803）。
- *  2. **手机号登录**：发短信验证码 → 输入验证码 → 登录。
- *  3. **Cookie 登录**：粘贴浏览器里的 MUSIC_U。
+ *  1. **手机号登录**：发短信验证码 → 输入验证码 → 登录。
+ *  2. **Cookie 登录**：粘贴浏览器里的 MUSIC_U。
  *
  * 登录成功与否**只看会话里有没有 MUSIC_U**（见 [CookieParser.hasMusicU]），
  * 与能否拉到用户信息无关；profile 由后续页面异步补拉。
@@ -38,25 +35,6 @@ class LoginViewModel @Inject constructor(
 
         /** 空闲 / 无操作。 */
         data object Idle : LoginState
-    }
-
-    // ------------------------------------------------------------------ 扫码
-
-    sealed interface QrState {
-        /** 正在请求二维码。 */
-        data object Loading : QrState
-
-        /** 二维码已就绪，等待扫码。 */
-        data class WaitingScan(val qr: QrCodeInfo) : QrState
-
-        /** 已扫码，等待用户在手机端确认。 */
-        data class WaitingConfirm(val qr: QrCodeInfo) : QrState
-
-        /** 二维码已过期，点击重新获取。 */
-        data class Expired(val message: String) : QrState
-
-        /** 获取/轮询失败。 */
-        data class Failed(val message: String) : QrState
     }
 
     // ------------------------------------------------------------------ 手机号
@@ -79,9 +57,6 @@ class LoginViewModel @Inject constructor(
     private val _state = MutableStateFlow<LoginState>(LoginState.Idle)
     val state: StateFlow<LoginState> = _state.asStateFlow()
 
-    private val _qrState = MutableStateFlow<QrState>(QrState.Loading)
-    val qrState: StateFlow<QrState> = _qrState.asStateFlow()
-
     private val _phoneState = MutableStateFlow<PhoneState>(PhoneState.Idle)
     val phoneState: StateFlow<PhoneState> = _phoneState.asStateFlow()
 
@@ -91,68 +66,7 @@ class LoginViewModel @Inject constructor(
     private val _cookieLoading = MutableStateFlow(false)
     val cookieLoading: StateFlow<Boolean> = _cookieLoading.asStateFlow()
 
-    private var qrPollJob: Job? = null
     private var countdownJob: Job? = null
-
-    // ------------------------------------------------------------------ 扫码
-
-    /** 开始扫码登录：请求二维码并进入轮询。 */
-    fun startQrLogin() {
-        qrPollJob?.cancel()
-        _qrState.value = QrState.Loading
-        viewModelScope.launch {
-            authRepository.requestQrCode().fold(
-                onSuccess = { qr ->
-                    _qrState.value = QrState.WaitingScan(qr)
-                    pollQr(qr.key)
-                },
-                onFailure = { error ->
-                    _qrState.value = QrState.Failed(error.toUserMessage())
-                },
-            )
-        }
-    }
-
-    /** 轮询扫码状态，直到成功 / 过期 / 失败。 */
-    private fun pollQr(key: String) {
-        qrPollJob?.cancel()
-        qrPollJob = viewModelScope.launch {
-            while (true) {
-                delay(POLL_INTERVAL_MS)
-                val result = authRepository.pollLogin(key)
-                val poll = result.getOrNull()
-                if (poll == null) {
-                    // 单次轮询失败（网络抖动）不中断，继续等。
-                    continue
-                }
-                when {
-                    poll.isSuccess -> {
-                        _state.value = LoginState.Success
-                        return@launch
-                    }
-                    poll.isExpired -> {
-                        _qrState.value = QrState.Expired("二维码已过期，点击刷新")
-                        return@launch
-                    }
-                    poll.isWaitingConfirm -> {
-                        val current = _qrState.value
-                        if (current is QrState.WaitingScan) {
-                            _qrState.value = QrState.WaitingConfirm(current.qr)
-                        }
-                    }
-                    poll.code == 8821 -> {
-                        _qrState.value = QrState.Failed("登录环境异常，请改用 Cookie 登录")
-                        return@launch
-                    }
-                    // 801 等待扫码：保持现状继续轮询。
-                }
-            }
-        }
-    }
-
-    fun stopQrLogin() {
-        qrPollJob?.cancel()
-    }
 
     // ------------------------------------------------------------------ 手机号
 
@@ -240,7 +154,6 @@ class LoginViewModel @Inject constructor(
 
     fun reset() {
         _state.value = LoginState.Idle
-        _qrState.value = QrState.Loading
         _phoneState.value = PhoneState.Idle
         _cookieError.value = null
         _cookieLoading.value = false
@@ -255,12 +168,7 @@ class LoginViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        qrPollJob?.cancel()
         countdownJob?.cancel()
         super.onCleared()
-    }
-
-    private companion object {
-        const val POLL_INTERVAL_MS = 2000L
     }
 }
