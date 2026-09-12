@@ -98,6 +98,7 @@ fun MelodyApp() {
     val message by playerViewModel.message.collectAsStateWithLifecycle()
 
     val nowPlayingId = snapshot.nowPlaying?.songId
+    val nowPlayingCover = snapshot.nowPlaying?.coverUrl
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -166,6 +167,7 @@ fun MelodyApp() {
                                 viewModel = viewModel,
                                 isWide = isWide,
                                 nowPlayingId = nowPlayingId,
+                                nowPlayingCover = nowPlayingCover,
                                 onOpenSearch = { navController.navigate(Destinations.SEARCH) },
                                 onOpenPlaylist = { navController.navigate(Destinations.playlist(it)) },
                                 onOpenLogin = { navController.navigate(Destinations.LOGIN) },

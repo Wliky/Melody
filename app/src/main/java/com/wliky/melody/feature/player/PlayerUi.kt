@@ -80,6 +80,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.blur
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
@@ -297,18 +299,13 @@ private fun FullPlayerScreen(
     CompositionLocalProvider(LocalMelodyAccent provides accent) {
         Surface(modifier = Modifier.fillMaxSize(), color = surface) {
             Box(modifier = Modifier.fillMaxSize()) {
-                // 封面主色渐变背景
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0f to accent.copy(alpha = 0.50f),
-                                0.32f to accent.copy(alpha = 0.18f),
-                                0.62f to surface.copy(alpha = 0.94f),
-                                1f to surface,
-                            ),
-                        ),
+                // 沉浸式背景：封面大图铺满 + 高斯模糊 + 深色渐变遮罩，
+                // 让整个播放页的视觉由封面驱动（Apple Music / Spotify 的做法）。
+                ImmersiveBackdrop(
+                    coverUrl = nowPlaying?.coverUrl,
+                    seed = nowPlaying?.songId.orEmpty(),
+                    accent = accent,
+                    surface = surface,
                 )
 
                 if (isLandscape) {
@@ -616,7 +613,7 @@ private fun RotatingArtwork(
         label = "rotation",
     )
 
-    // 唱片底色圆盘（比封面稍大，模拟黑胶外圈）
+    // 唱片底色圆盘（比封面稍大，模拟黑胶外圈，用深色但不生硬）
     Box(
         modifier = Modifier
             .size(maxSize)
@@ -624,7 +621,7 @@ private fun RotatingArtwork(
                 rotationZ = if (isPlaying) rotation else 0f
             }
             .clip(CircleShape)
-            .background(Color(0xFF1A1A1A))
+            .background(Color(0xFF161616))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -633,13 +630,13 @@ private fun RotatingArtwork(
             modifier = Modifier
                 .fillMaxSize(0.94f)
                 .clip(CircleShape)
-                .background(accent.copy(alpha = 0.15f)),
+                .background(accent.copy(alpha = 0.20f)),
         )
-        // 封面本体（圆形）
+        // 封面本体（圆形），带一圈细微描边提升精致度
         Box(
             modifier = Modifier
                 .fillMaxSize(0.66f)
-                .shadow(8.dp, CircleShape)
+                .shadow(10.dp, CircleShape)
                 .clip(CircleShape)
                 .background(coverBrush(seed)),
         ) {
@@ -1180,6 +1177,65 @@ private fun LinearProgressIndicator(
                 .fillMaxWidth(animatedProgress)
                 .height(2.dp)
                 .background(color),
+        )
+    }
+}
+
+/**
+ * 沉浸式播放页背景：封面大图铺满 + 高斯模糊 + 深色渐变遮罩。
+ *
+ * 这是「真正音乐 App」区别于「Demo」的关键一笔：整页视觉由封面驱动，
+ * 模糊的封面充当背景，再叠一层强调色 + 深色渐变，保证前景文字可读，
+ * 同时让每次切歌都带来一次平滑的「换色」体验。
+ */
+@Composable
+private fun ImmersiveBackdrop(
+    coverUrl: String?,
+    seed: String,
+    accent: Color,
+    surface: Color,
+) {
+    val darkTheme = isSystemInDarkTheme()
+    Box(modifier = Modifier.fillMaxSize()) {
+        // 第一层：封面大图（模糊 + 放大裁切，避免边缘露出）
+        if (!coverUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                    .data(coverUrl)
+                    .crossfade(400)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { scaleX = 1.25f; scaleY = 1.25f }
+                    .blur(48.dp),
+            )
+        } else {
+            // 无封面时用确定性渐变色板兜底，同样铺满
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(coverBrush(seed)),
+            )
+        }
+
+        // 第二层：强调色 + 深色渐变遮罩，压暗背景、保证前景可读
+        val topScrim = if (darkTheme) {
+            Color.Black.copy(alpha = 0.30f)
+        } else {
+            accent.copy(alpha = 0.38f)
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to topScrim,
+                        0.45f to surface.copy(alpha = if (darkTheme) 0.62f else 0.86f),
+                        1f to surface,
+                    ),
+                ),
         )
     }
 }

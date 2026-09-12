@@ -45,6 +45,7 @@ import com.wliky.melody.core.designsystem.component.ErrorState
 import com.wliky.melody.core.designsystem.component.PlayingIndicator
 import com.wliky.melody.core.designsystem.component.SectionHeader
 import com.wliky.melody.core.designsystem.component.SongRow
+import com.wliky.melody.core.designsystem.theme.rememberArtworkAccent
 import com.wliky.melody.core.model.HomeFeed
 import com.wliky.melody.core.model.Playlist
 import com.wliky.melody.core.model.Song
@@ -70,6 +71,7 @@ fun HomeScreen(
     onPlay: (List<Song>, Int) -> Unit,
     modifier: Modifier = Modifier,
     nowPlayingId: String? = null,
+    nowPlayingCover: String? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val loggedIn by viewModel.loggedIn.collectAsStateWithLifecycle()
@@ -100,6 +102,7 @@ fun HomeScreen(
                 loggedIn = loggedIn,
                 nickname = profile?.nickname,
                 nowPlayingId = nowPlayingId,
+                nowPlayingCover = nowPlayingCover,
                 onOpenSearch = onOpenSearch,
                 onOpenPlaylist = onOpenPlaylist,
                 onOpenLogin = onOpenLogin,
@@ -116,6 +119,7 @@ private fun HomeContent(
     loggedIn: Boolean,
     nickname: String?,
     nowPlayingId: String?,
+    nowPlayingCover: String?,
     onOpenSearch: () -> Unit,
     onOpenPlaylist: (String) -> Unit,
     onOpenLogin: () -> Unit,
@@ -130,6 +134,7 @@ private fun HomeContent(
                 greeting = rememberGreeting(),
                 loggedIn = loggedIn,
                 nickname = nickname,
+                nowPlayingCover = nowPlayingCover,
                 onOpenSearch = onOpenSearch,
                 onOpenLogin = onOpenLogin,
             )
@@ -263,15 +268,18 @@ private fun LoginBanner(onOpenLogin: () -> Unit) {
 /**
  * 页头：问候语 + 品牌名 + 搜索入口。
  * 登录后右侧显示用户头像/昵称，未登录时显示登录按钮。
+ * 播放中时标题区带一条由当前封面驱动的极淡渐变，延续动态主题。
  */
 @Composable
 private fun HomeHeader(
     greeting: String,
     loggedIn: Boolean,
     nickname: String?,
+    nowPlayingCover: String?,
     onOpenSearch: () -> Unit,
     onOpenLogin: () -> Unit,
 ) {
+    val headerAccent = rememberArtworkAccent(nowPlayingCover, MaterialTheme.colorScheme.primary)
     Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
@@ -286,6 +294,11 @@ private fun HomeHeader(
                         MaterialTheme.typography.headlineMedium
                     } else {
                         MaterialTheme.typography.displaySmall
+                    },
+                    color = if (nowPlayingCover != null) {
+                        headerAccent
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
                     },
                 )
             }

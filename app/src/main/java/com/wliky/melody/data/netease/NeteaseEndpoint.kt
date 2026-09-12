@@ -67,6 +67,13 @@ enum class NeteaseEndpoint(
         get() = this == QR_KEY || this == QR_CHECK || this == QR_CREATE ||
             this == CAPTCHA_SENT || this == LOGIN_CELLPHONE
 
+    /**
+     * 移动端标识接口：这些接口的路径带 `/api/w/` 前缀，本质是移动端接口，
+     * 用桌面 UA 请求容易被风控（403 / -460 Cheating）拦掉。请求时需换移动端 UA。
+     */
+    val requiresMobileHeader: Boolean
+        get() = this == ACCOUNT || this == LOGIN_CELLPHONE
+
     /** 该端点是否在某个模式下有实现。 */
     fun supports(mode: ApiMode): Boolean = when (mode) {
         ApiMode.DIRECT -> directPath.isNotBlank()

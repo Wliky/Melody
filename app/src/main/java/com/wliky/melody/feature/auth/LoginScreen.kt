@@ -121,8 +121,10 @@ fun LoginScreen(
                 },
             )
 
-            // 错误时盖一层提示。
-            if (state is LoginViewModel.LoginState.Failed) {
+            // 错误时盖一层提示。可恢复错误（网络抖动）不盖死，只在顶部状态条提示，
+            // 让用户仍能在 WebView 里继续扫码 / 验证码登录。
+            val failed = state as? LoginViewModel.LoginState.Failed
+            if (failed != null && !failed.recoverable) {
                 Surface(
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
                     modifier = Modifier.fillMaxSize(),
@@ -140,14 +142,14 @@ fun LoginScreen(
                         )
                         Spacer(Modifier.height(12.dp))
                         Text(
-                            text = (state as LoginViewModel.LoginState.Failed).message,
+                            text = failed.message,
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = TextAlign.Center,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Spacer(Modifier.height(16.dp))
                         Button(onClick = viewModel::consumeError) {
-                            Text("我知道了")
+                            Text("重新登录")
                         }
                     }
                 }
@@ -330,11 +332,24 @@ private fun WebViewLogin(
                     override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                         onPageStarted()
                     }
+
                     override fun onPageFinished(view: WebView?, url: String?) {
+                        // 登录成功后的关键跳转：官方页从 music.163.com/m/login 跳到
+                        // y.music.163.com（首页）时，Cookie 里的 MUSIC_U + __csrf 才算最终落定。
+                        // 这里在每次页面加载完成后都抓一次，抓到 MUSIC_U 就交给上层判定。
                         if (view != null) onPageFinished(view)
                     }
-                    // 不拦截 shouldOverrideUrlLoading —— 让网易自己的跳转正常进行
-                    // （扫码登录成功后官方页会跳到 y.music.163.com/m/）。
+
+                    override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
+                        // 不拦截任何跳转，让网易自己的登录流程正常进行。
+                        // 但登录成功后页面会跳转，此时主动抓一次 Cookie，比等 onPageFinished 更及时。
+                        val target = request?.url?.toString().orEmpty()
+                        if (view != null && (target.contains("y.music.163.com") || target.contains("music.163.com/#/"))) {
+                            // 延迟一点抓，等 Set-Cookie 真正写入 CookieManager。
+                            view.postDelayed({ onPageFinished(view) }, 300L)
+                        }
+                        return false
+                    }
                 }
                 wv.loadUrl(LOGIN_URL)
             }

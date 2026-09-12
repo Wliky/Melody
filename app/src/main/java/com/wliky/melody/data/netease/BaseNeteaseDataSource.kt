@@ -232,12 +232,31 @@ abstract class BaseNeteaseDataSource(
             throw AppError.Parse("没有识别到有效的 MUSIC_U，请确认复制的是登录后的 Cookie")
         }
         session.saveSession(normalized, "")
-        val profile = runCatching { fetchProfile() }.getOrNull()
-        if (profile == null) {
-            session.clear()
-            throw AppError.Unauthorized("这份 Cookie 已失效，请重新从浏览器复制一份")
+
+        // 拉取用户信息，但**不要**把「任何失败」都当成「cookie 失效」：
+        // 网络抖动、风控 403、超时这些可恢复错误，应该保留会话让上层重试；
+        // 只有服务端明确说「未登录 / 登录态失效」（301 等）才真正清掉会话。
+        val profile = try {
+            fetchProfile()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (t: Throwable) {
+            val error = t.toAppError()
+            if (error is AppError.Unauthorized) {
+                // 明确判定登录态失效：清掉会话，让用户重新登录。
+                session.clear()
+                throw AppError.Unauthorized("这份 Cookie 已失效，请重新登录")
+            }
+            // 网络 / 风控 / 解析抖动：保留会话，直接抛出可重试的错误，
+            // 由上层决定重试还是提示，而不是误判成「cookie 失效」。
+            throw error
         }
-        // fetchProfile 期间可能合并了新的 Set-Cookie，这里把 userId 补上
+
+        if (profile == null) {
+            // fetchProfile 正常返回但拿不到 profile（接口结构变化），
+            // 这属于「凭据没问题但暂时取不到信息」，也不该直接清会话。
+            throw AppError.Server("暂时无法获取用户信息，请稍后重试")
+        }
         session.updateUserId(profile.userId)
         if (!session.hasAuthToken()) session.saveSession(normalized, profile.userId)
         return profile

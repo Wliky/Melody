@@ -40,7 +40,11 @@ class LoginViewModel @Inject constructor(
         data object Ready : LoginState
 
         /** 登录失败：Cookie 没有 MUSIC_U 或解析失败。 */
-        data class Failed(val message: String) : LoginState
+        data class Failed(
+            val message: String,
+            /** 可恢复错误（网络抖动/服务端暂时不可用）不盖死登录页，用户可继续在 WebView 里重试。 */
+            val recoverable: Boolean = false,
+        ) : LoginState
 
         /** 登录成功，由 NavController 走 onLoggedIn 退出登录页。 */
         data object Success : LoginState
@@ -107,15 +111,21 @@ class LoginViewModel @Inject constructor(
             _state.value = LoginState.Loading
             authRepository.completeWebLogin(cookie).fold(
                 onSuccess = { _state.value = LoginState.Success },
-                onFailure = { error -> _state.value = LoginState.Failed(error.toUserMessage()) },
+                onFailure = { error ->
+                    _state.value = LoginState.Failed(
+                        message = error.toUserMessage(),
+                        recoverable = error.recoverable,
+                    )
+                },
             )
         }
     }
 
     private fun AppError.toUserMessage(): String = when (this) {
-        is AppError.Unauthorized -> "这份 Cookie 已失效，请重新登录或复制一份新的"
+        is AppError.Unauthorized -> "登录态已失效，请在下方重新扫码登录"
         is AppError.Parse -> "Cookie 解析失败，请检查粘贴内容是否完整"
         is AppError.Network -> "网络连接失败，请稍后重试"
+        is AppError.Server -> message.ifBlank { "登录服务暂时不可用，请稍后重试" }
         else -> message
     }
 

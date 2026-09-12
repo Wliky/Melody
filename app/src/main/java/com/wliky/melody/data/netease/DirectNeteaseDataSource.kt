@@ -77,19 +77,22 @@ class DirectNeteaseDataSource @Inject constructor(
     }
 
     override suspend fun request(endpoint: NeteaseEndpoint, payload: JsonObject): JsonElement {
-        if (!endpoint.isLoginEndpoint) return requestViaWeapi(endpoint, payload, mobileHeaders = false)
+        if (endpoint.isLoginEndpoint) {
+            // 登录链路：weapi 优先，失败或拿不到关键字段时用 eapi 再试一次。
+            val viaWeapi = runCatching { requestViaWeapi(endpoint, payload, mobileHeaders = true) }
+            val weapiResult = viaWeapi.getOrNull()
+            if (weapiResult != null && weapiResult.looksLikeQrPayload()) return weapiResult
 
-        // 登录链路：weapi 优先，失败或拿不到关键字段时用 eapi 再试一次。
-        val viaWeapi = runCatching { requestViaWeapi(endpoint, payload, mobileHeaders = true) }
-        val weapiResult = viaWeapi.getOrNull()
-        if (weapiResult != null && weapiResult.looksLikeQrPayload()) return weapiResult
-
-        val viaEapi = runCatching { requestViaEapi(endpoint, payload) }
-        return viaEapi.getOrElse {
-            // 两条链路都失败：抛出信息量更大的那一个
-            viaWeapi.exceptionOrNull()?.let { error -> throw error }
-            weapiResult ?: throw AppError.Server("登录接口无响应，请稍后重试")
+            val viaEapi = runCatching { requestViaEapi(endpoint, payload) }
+            return viaEapi.getOrElse {
+                // 两条链路都失败：抛出信息量更大的那一个
+                viaWeapi.exceptionOrNull()?.let { error -> throw error }
+                weapiResult ?: throw AppError.Server("登录接口无响应，请稍后重试")
+            }
         }
+
+        // 账号信息等移动端接口（/api/w/ 前缀）需要移动端 UA，否则容易被风控拦掉。
+        return requestViaWeapi(endpoint, payload, mobileHeaders = endpoint.requiresMobileHeader)
     }
 
     private suspend fun requestViaWeapi(

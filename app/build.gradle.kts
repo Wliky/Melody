@@ -15,10 +15,10 @@ android {
         applicationId = "com.wliky.melody"
         minSdk = 24
         targetSdk = 35
-        versionCode = 6
-        // 预览版：tag 里带 '-'（如 v0.4.0-preview.1），workflow 会据此把它标成
+        versionCode = 7
+        // 预览版：tag 里带 '-'（如 v0.4.0-preview.2），workflow 会据此把它标成
         // GitHub prerelease —— 不算正式版、不占 Latest。正式版发布后再删掉预览 Release。
-        versionName = "0.4.0-preview.1"
+        versionName = "0.4.0-preview.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
