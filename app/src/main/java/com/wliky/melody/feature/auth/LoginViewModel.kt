@@ -4,28 +4,28 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.wliky.melody.core.common.AppError
 import com.wliky.melody.core.common.fold
+import com.wliky.melody.core.model.LoginPollResult
+import com.wliky.melody.core.model.QrCodeInfo
 import com.wliky.melody.core.network.CookieParser
 import com.wliky.melody.data.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * 登录（v0.3.0-preview.3+）。
+ * 登录（v0.4.0-preview.4+）：三种原生登录方式的状态机。
  *
- * 只剩一条通路：**WebView 直接加载网易云官方登录页**。
+ *  1. **扫码登录**：请求官方二维码 key → 本地生成二维码 → 轮询状态（800/801/802/803）。
+ *  2. **手机号登录**：发短信验证码 → 输入验证码 → 登录。
+ *  3. **Cookie 登录**：粘贴浏览器里的 MUSIC_U。
  *
- * 选这条路的原因：api-enhanced 暴露的 `login/qr/check`、`login/cellphone`
- * 走的是网易加密接口，国内网络经常被风控挡住（403 / 8821），表现就是
- * 「扫码无响应 / 验证码登录报 400」。换成官方登录页之后，扫码 / 验证码 / 邮箱
- * 都由网易自己处理风控，我们只需要在登录成功后从 `WebView` 的 `CookieManager`
- * 里把整套 Cookie 拿出来即可。
- *
- * Cookie 兜底仍然有用（浏览器已经登录好了的场景），但属于次要入口，
- * 放在「高级选项」折叠面板里。
+ * 登录成功与否**只看会话里有没有 MUSIC_U**（见 [CookieParser.hasMusicU]），
+ * 与能否拉到用户信息无关；profile 由后续页面异步补拉。
  */
 @HiltViewModel
 class LoginViewModel @Inject constructor(
@@ -33,86 +33,141 @@ class LoginViewModel @Inject constructor(
 ) : ViewModel() {
 
     sealed interface LoginState {
-        /** 初始状态：WebView 正在加载网易云官方登录页。 */
-        data object Loading : LoginState
-
-        /** 页面加载完成，等待用户登录。 */
-        data object Ready : LoginState
-
-        /** 登录失败：Cookie 没有 MUSIC_U 或解析失败。 */
-        data class Failed(
-            val message: String,
-            /** 可恢复错误（网络抖动/服务端暂时不可用）不盖死登录页，用户可继续在 WebView 里重试。 */
-            val recoverable: Boolean = false,
-        ) : LoginState
-
         /** 登录成功，由 NavController 走 onLoggedIn 退出登录页。 */
         data object Success : LoginState
+
+        /** 空闲 / 无操作。 */
+        data object Idle : LoginState
     }
 
-    private val _state = MutableStateFlow<LoginState>(LoginState.Loading)
+    // ------------------------------------------------------------------ 扫码
+
+    sealed interface QrState {
+        /** 正在请求二维码。 */
+        data object Loading : QrState
+
+        /** 二维码已就绪，等待扫码。 */
+        data class WaitingScan(val qr: QrCodeInfo) : QrState
+
+        /** 已扫码，等待用户在手机端确认。 */
+        data class WaitingConfirm(val qr: QrCodeInfo) : QrState
+
+        /** 二维码已过期，点击重新获取。 */
+        data class Expired(val message: String) : QrState
+
+        /** 获取/轮询失败。 */
+        data class Failed(val message: String) : QrState
+    }
+
+    // ------------------------------------------------------------------ 手机号
+
+    sealed interface PhoneState {
+        data object Idle : PhoneState
+
+        /** 正在发送验证码。 */
+        data object Sending : PhoneState
+
+        /** 验证码已发送，等待输入。 */
+        data class Sent(val countdown: Int = 60) : PhoneState
+
+        /** 正在登录。 */
+        data object LoggingIn : PhoneState
+
+        data class Failed(val message: String, val recoverable: Boolean = false) : PhoneState
+    }
+
+    private val _state = MutableStateFlow<LoginState>(LoginState.Idle)
     val state: StateFlow<LoginState> = _state.asStateFlow()
 
-    /**
-     * WebView 页面加载状态（驱动 UI 层的"页面已就绪/等待登录"提示）。
-     */
-    private val _pageLoaded = MutableStateFlow(false)
-    val pageLoaded: StateFlow<Boolean> = _pageLoaded.asStateFlow()
+    private val _qrState = MutableStateFlow<QrState>(QrState.Loading)
+    val qrState: StateFlow<QrState> = _qrState.asStateFlow()
 
-    fun onPageLoaded() {
-        _pageLoaded.value = true
-        if (_state.value is LoginState.Loading) {
-            _state.value = LoginState.Ready
-        }
-    }
+    private val _phoneState = MutableStateFlow<PhoneState>(PhoneState.Idle)
+    val phoneState: StateFlow<PhoneState> = _phoneState.asStateFlow()
 
-    fun onPageStarted() {
-        _pageLoaded.value = false
-    }
+    private val _cookieError = MutableStateFlow<String?>(null)
+    val cookieError: StateFlow<String?> = _cookieError.asStateFlow()
 
-    /**
-     * 把 WebView 的全部 Cookie 拿出来过一遍。
-     *
-     * 调用时机：WebView 跳转到一个能识别 `MUSIC_U` 的路径之后。
-     *
-     * 返回值：
-     *  - true  —— 这份 Cookie 真的带着 MUSIC_U，登录成功并退出登录页；
-     *  - false —— 还没有登录成功，调用方继续等下次跳转。
-     */
-    fun onWebViewCookies(rawCookie: String?): Boolean {
-        if (rawCookie.isNullOrBlank()) return false
-        val sanitized = CookieParser.sanitize(rawCookie) ?: return false
-        if (!CookieParser.hasMusicU(sanitized)) return false
-        if (_state.value is LoginState.Success) return true
-        submitCookie(sanitized)
-        return true
-    }
+    private val _cookieLoading = MutableStateFlow(false)
+    val cookieLoading: StateFlow<Boolean> = _cookieLoading.asStateFlow()
 
-    /** 用户从「高级选项 → Cookie 兜底」走手动粘贴。 */
-    fun submitManualCookie(raw: String) {
-        val normalized = CookieParser.normalize(raw)
-            ?: run {
-                _state.value = LoginState.Failed("Cookie 格式不正确，请粘贴包含 MUSIC_U 的完整内容")
-                return
-            }
-        if (!CookieParser.looksUsable(normalized)) {
-            _state.value = LoginState.Failed("没有识别到有效的 MUSIC_U，请确认复制的是登录后的 Cookie")
-            return
-        }
-        submitCookie(normalized)
-    }
+    private var qrPollJob: Job? = null
+    private var countdownJob: Job? = null
 
-    fun consumeError() {
-        if (_state.value is LoginState.Failed) _state.value = LoginState.Ready
-    }
+    // ------------------------------------------------------------------ 扫码
 
-    private fun submitCookie(cookie: String) {
+    /** 开始扫码登录：请求二维码并进入轮询。 */
+    fun startQrLogin() {
+        qrPollJob?.cancel()
+        _qrState.value = QrState.Loading
         viewModelScope.launch {
-            _state.value = LoginState.Loading
-            authRepository.completeWebLogin(cookie).fold(
-                onSuccess = { _state.value = LoginState.Success },
+            authRepository.requestQrCode().fold(
+                onSuccess = { qr ->
+                    _qrState.value = QrState.WaitingScan(qr)
+                    pollQr(qr.key)
+                },
                 onFailure = { error ->
-                    _state.value = LoginState.Failed(
+                    _qrState.value = QrState.Failed(error.toUserMessage())
+                },
+            )
+        }
+    }
+
+    /** 轮询扫码状态，直到成功 / 过期 / 失败。 */
+    private fun pollQr(key: String) {
+        qrPollJob?.cancel()
+        qrPollJob = viewModelScope.launch {
+            while (true) {
+                delay(POLL_INTERVAL_MS)
+                val result = authRepository.pollLogin(key)
+                val poll = result.getOrNull()
+                if (poll == null) {
+                    // 单次轮询失败（网络抖动）不中断，继续等。
+                    continue
+                }
+                when {
+                    poll.isSuccess -> {
+                        _state.value = LoginState.Success
+                        return@launch
+                    }
+                    poll.isExpired -> {
+                        _qrState.value = QrState.Expired("二维码已过期，点击刷新")
+                        return@launch
+                    }
+                    poll.isWaitingConfirm -> {
+                        val current = _qrState.value
+                        if (current is QrState.WaitingScan) {
+                            _qrState.value = QrState.WaitingConfirm(current.qr)
+                        }
+                    }
+                    poll.code == 8821 -> {
+                        _qrState.value = QrState.Failed("登录环境异常，请改用 Cookie 登录")
+                        return@launch
+                    }
+                    // 801 等待扫码：保持现状继续轮询。
+                }
+            }
+        }
+    }
+
+    fun stopQrLogin() {
+        qrPollJob?.cancel()
+    }
+
+    // ------------------------------------------------------------------ 手机号
+
+    /** 发送短信验证码。 */
+    fun sendCaptcha(phone: String) {
+        if (_phoneState.value is PhoneState.Sending) return
+        _phoneState.value = PhoneState.Sending
+        viewModelScope.launch {
+            authRepository.sendCaptcha(phone).fold(
+                onSuccess = {
+                    _phoneState.value = PhoneState.Sent(60)
+                    startCountdown()
+                },
+                onFailure = { error ->
+                    _phoneState.value = PhoneState.Failed(
                         message = error.toUserMessage(),
                         recoverable = error.recoverable,
                     )
@@ -121,15 +176,91 @@ class LoginViewModel @Inject constructor(
         }
     }
 
+    private fun startCountdown() {
+        countdownJob?.cancel()
+        countdownJob = viewModelScope.launch {
+            var remaining = 60
+            while (remaining > 0) {
+                delay(1000)
+                remaining--
+                val current = _phoneState.value
+                if (current is PhoneState.Sent) {
+                    _phoneState.value = current.copy(countdown = remaining)
+                }
+            }
+        }
+    }
+
+    /** 手机号 + 验证码登录。 */
+    fun loginWithPhone(phone: String, captcha: String) {
+        if (_phoneState.value is PhoneState.LoggingIn) return
+        _phoneState.value = PhoneState.LoggingIn
+        viewModelScope.launch {
+            authRepository.loginWithPhone(phone, captcha).fold(
+                onSuccess = { _state.value = LoginState.Success },
+                onFailure = { error ->
+                    _phoneState.value = PhoneState.Failed(
+                        message = error.toUserMessage(),
+                        recoverable = error.recoverable,
+                    )
+                },
+            )
+        }
+    }
+
+    // ------------------------------------------------------------------ Cookie
+
+    /** Cookie 登录。 */
+    fun submitManualCookie(raw: String) {
+        val normalized = CookieParser.normalize(raw)
+            ?: run {
+                _cookieError.value = "Cookie 格式不正确，请粘贴包含 MUSIC_U 的完整内容"
+                return
+            }
+        if (!CookieParser.looksUsable(normalized)) {
+            _cookieError.value = "没有识别到有效的 MUSIC_U，请确认复制的是登录后的 Cookie"
+            return
+        }
+        _cookieLoading.value = true
+        _cookieError.value = null
+        viewModelScope.launch {
+            authRepository.loginWithCookie(normalized).fold(
+                onSuccess = { _state.value = LoginState.Success },
+                onFailure = { error ->
+                    _cookieLoading.value = false
+                    _cookieError.value = error.toUserMessage()
+                },
+            )
+        }
+    }
+
+    fun clearCookieError() {
+        _cookieError.value = null
+    }
+
+    fun reset() {
+        _state.value = LoginState.Idle
+        _qrState.value = QrState.Loading
+        _phoneState.value = PhoneState.Idle
+        _cookieError.value = null
+        _cookieLoading.value = false
+    }
+
     private fun AppError.toUserMessage(): String = when (this) {
-        is AppError.Unauthorized -> "登录态已失效，请在下方重新扫码登录"
-        is AppError.Parse -> "Cookie 解析失败，请检查粘贴内容是否完整"
+        is AppError.Unauthorized -> "登录态已失效，请重新登录"
+        is AppError.Parse -> "登录参数有误，请检查输入"
         is AppError.Network -> "网络连接失败，请稍后重试"
         is AppError.Server -> message.ifBlank { "登录服务暂时不可用，请稍后重试" }
         else -> message
     }
 
     override fun onCleared() {
+        qrPollJob?.cancel()
+        countdownJob?.cancel()
         super.onCleared()
+    }
+
+    private companion object {
+        const val POLL_INTERVAL_MS = 2000L
     }
 }

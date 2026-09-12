@@ -285,12 +285,24 @@ abstract class BaseNeteaseDataSource(
             ?.let { CookieParser.sanitize(it) }
             ?.let { session.updateCookie(it) }
 
-        val profile = fetchProfile()
-        if (profile == null || !session.hasAuthToken()) {
+        // 登录成功的判据是「会话里有没有 MUSIC_U」，而不是「能否拉到 profile」。
+        // 手机号登录接口成功（200）后，直连模式 MUSIC_U 已经经 mergeCookies 落盘；
+        // 若此时还没拿到 MUSIC_U，说明登录凭据确实没拿到，这才算失败。
+        if (!session.hasAuthToken()) {
             session.clear()
             throw AppError.Unauthorized("登录成功但没有取得有效凭据，请重试或改用 Cookie 登录")
         }
-        session.updateUserId(profile.userId)
+
+        // profile（昵称 / 头像 / uid）是展示信息：拉不到（风控 / 网络抖动）不清会话、
+        // 不判登录失败，静默返回 null，由上层页面异步补拉。
+        val profile = try {
+            fetchProfile()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (t: Throwable) {
+            null
+        }
+        if (profile != null) session.updateUserId(profile.userId)
         return profile
     }
 
