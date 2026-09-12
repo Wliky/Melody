@@ -313,8 +313,7 @@ abstract class BaseNeteaseDataSource(
         504 -> "该手机号还没有注册网易云音乐"
         8821 -> "触发了登录风控，请稍后再试，或改用 Cookie 登录"
         -460 -> "当前网络环境被判定为异常（-460），请关闭代理 / VPN 后重试"
-        !message.isNullOrBlank() -> "$action 失败：$message"
-        else -> "$action 失败（错误码 $code）"
+        else -> if (!message.isNullOrBlank()) "$action 失败：$message" else "$action 失败（错误码 $code）"
     }
 
     override suspend fun fetchProfile(): UserProfile? {
