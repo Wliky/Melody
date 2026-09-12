@@ -76,7 +76,7 @@ class AuthRepository @Inject constructor(
      * 走和 Cookie 登录完全一致的解析、保存、拉用户信息链路。
      *
      * 这样做有两个好处：
-     *  1. 不依赖自建服务暴露 `/login/qr/*` / `/login/cellphone` 等接口，
+     *  1. 不依赖自建服务暴露 `login/qr/check`、`login/cellphone` 等接口，
      *     官方风控由网易官方页面承担，再没有「403 / 8821」的兜底烦恼。
      *  2. 不需要逆向任何 eapi/weapi 加密协议，纯粹是浏览器行为。
      */

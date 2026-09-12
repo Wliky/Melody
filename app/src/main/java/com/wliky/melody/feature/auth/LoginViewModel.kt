@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
  *
  * 只剩一条通路：**WebView 直接加载网易云官方登录页**。
  *
- * 选这条路的原因：api-enhanced 暴露的 `/login/qr/*` / `/login/cellphone`
+ * 选这条路的原因：api-enhanced 暴露的 `login/qr/check`、`login/cellphone`
  * 走的是网易加密接口，国内网络经常被风控挡住（403 / 8821），表现就是
  * 「扫码无响应 / 验证码登录报 400」。换成官方登录页之后，扫码 / 验证码 / 邮箱
  * 都由网易自己处理风控，我们只需要在登录成功后从 `WebView` 的 `CookieManager`
