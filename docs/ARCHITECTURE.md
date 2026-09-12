@@ -75,6 +75,44 @@ Compose UI → PlayerViewModel → PlayerController(接口) → Media3PlayerCont
 
 `SyncProvider` 用 `@IntoSet` 多绑定注册，新增同步目标只需要多一个 `@Binds @IntoSet`。
 
+`SyncManager` 是调度层，**全自动，没有对外的手动同步方法**：
+
+- 订阅 `pendingCount > 0` → 防抖 3s 合并 → 提交（听完一首歌只发一次请求）；
+- 订阅 `networkMonitor.isOnline && settings.reportPlayback` → 由离线转在线时补交积压；
+- 每 5 分钟兜底重试一次，只处理未达重试上限的事件；
+- 三条链路共用一个 `Mutex` 串行化，避免定时器 / 网络恢复 / 新事件并发提交同一批数据。
+
+上报通道只在 `API_SERVER` 模式下真实存在（`NeteaseDataSource.supportsPlaybackReport`）；
+直连与演示模式下 Provider 返回「不支持」，事件标记 `SKIPPED`，**听歌记录不会离开设备**。
+
+## 4.1 登录链路（风控）
+
+登录接口对请求头挑剔，直连模式必须伪装成移动端：
+
+- 请求头用**移动端 UA**，且 `Referer` 指向 `https://music.163.com/login`；
+  用桌面 UA 或站点根 Referer 会直接 403，且响应体里连 `unikey` 都没有
+  （客户端只能笼统报「二维码返回异常」，这就是这个 Bug 的根因）；
+- 先走 weapi，**失败或缺字段**时降级 eapi 重试；eapi 头里带**持久化设备号**、
+  客户端版本与机型（设备号存在 Keystore 存储里，`clear()` 时保留，否则每次登录都算新设备）；
+- 二维码内容附带 `chainId`，与 unikey 校验时一起提交；
+- 轮询返回 `8821` 视为**风控**（`LoginPollResult.isRiskControlled`），立即停止轮询并给出明确提示；
+- 兜底方案：**Cookie 登录**。`core/network/CookieParser` 是纯 JVM 的规整器，
+  能吃下整段 Cookie / 只给值 / 带 `Cookie:` 前缀 / 带引号 / 带换行，也能拒绝明显的垃圾输入。
+
+## 4.2 视觉系统与高刷新率
+
+- **语义色板**：`Theme.kt` 定义完整的 Material 3 色板（含 `surfaceContainer` 系列）、
+  定制 Typography（收紧字距、拉开标题字号差）与圆角阶梯（6/12/18/24/32）。
+- **封面取色**：`rememberArtworkAccent(url, fallback)` 用 Palette 从专辑封面提取主色，
+  再用 `ColorUtils.colorToHSL` / `HSLToColor` 按当前明暗主题夹住亮度与饱和度下限
+  （避免暗封面抽出看不见的颜色），通过 `LocalMelodyAccent` 下发。
+  播放页背景渐变、进度条、歌词高亮、播放按钮都跟随它变化。
+- **高刷新率**：`core/designsystem/RefreshRate.kt` 在 `display.supportedModes` 里挑
+  「physicalWidth/Height 与当前模式相同、且 refreshRate ≥ 90」的**最高**一档，
+  写入 `window.attributes.preferredDisplayModeId`。
+  限定同分辨率是为了**不触发分辨率切换**，否则会闪屏。
+  在 `onCreate` / `onResume` / `onConfigurationChanged` 三处重新应用。
+
 ## 5. 字段容错策略
 
 第三方接口的字段会变，解析层必须比接口更皮实：
@@ -89,7 +127,7 @@ Compose UI → PlayerViewModel → PlayerController(接口) → Media3PlayerCont
 ## 6. 手机 / 平板自适应
 
 - 断点：`screenWidthDp >= 600`（`rememberIsWideLayout()`）；
-- 窄屏：底部两个主入口（首页 / 我的）+ 迷你播放器贴底；
+- 窄屏：底部**四个**主入口（首页 / 搜索 / 历史 / 我的）+ 迷你播放器贴底；
 - 宽屏：侧边 `NavigationRail`（首页 / 搜索 / 历史 / 我的）+ 迷你播放器贴内容区底部；
 - 宽屏下推荐歌单直接铺成 4 列，搜索页用「结果列表 + 选中详情」双栏；
 - 旋转 / 折叠屏变化通过 `android:configChanges` 处理，避免重建导致播放器闪断。
@@ -102,7 +140,11 @@ Compose UI → PlayerViewModel → PlayerController(接口) → Media3PlayerCont
 - 不再使用 `android.util.Base64`，自己实现了 `Base64Codec`，并用「与 JDK 实现逐字节一致」来验证；
 - 加解密用 JDK 的 AES 反向解密来验证密钥 / IV / 填充处理正确；
 - 播放事件记录器注入 `Clock`，可以精确断言时长累计；
-- `SyncRepositoryTest` 用内存 DAO 假实现验证幂等、重试上限、SKIPPED 语义。
+- `SyncRepositoryTest` 用内存 DAO 假实现验证幂等、重试上限、SKIPPED 语义；
+- `CookieParserTest` 覆盖整段 Cookie / 只给值 / 前缀引号换行 / 非法输入拒绝
+  （这个测试抓出过一个真 Bug：`"; ; ;"` 被误判成「只粘贴了值」而补成 `MUSIC_U=; ; ;`，
+  现在的判据是「候选值不含 `;` 且长度 ≥ 16」）；
+- `LoginPollResultTest` 验证风控码 `8821` 被正确识别。
 
 ## 8. 后续演进
 
