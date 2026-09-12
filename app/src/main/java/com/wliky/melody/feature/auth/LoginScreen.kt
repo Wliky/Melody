@@ -1,60 +1,54 @@
 package com.wliky.melody.feature.auth
 
 import android.annotation.SuppressLint
-import android.os.Build
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.Cookie
-import androidx.compose.material.icons.rounded.ExpandLess
-import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.QrCode2
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -63,14 +57,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wliky.melody.core.network.CookieParser
 
 /**
- * 登录页（v0.3.0-preview.3+）。
+ * 登录页（v0.4.0-preview.3+）。
  *
- * 主要是一张全屏 WebView，加载网易云官方登录页 `https://music.163.com/m/login`，
- * 用户扫码 / 验证码 / 邮箱登录都由网易自己处理；登录成功后从 `CookieManager`
- * 拿到带 `MUSIC_U` 的完整 Cookie，提交给 AuthRepository。
+ * 三层结构，用内部 [LoginStage] 切换（不新增导航目的地）：
  *
- * 折叠的高级选项里放了「粘贴 Cookie」的兜底入口：在浏览器已经登录好、
- * WebView 加载又比较慢时用。
+ *  1. [LoginStage.ENTRY]   —— 登录入口：Melody Logo + 标题 + 「扫码登录」主按钮 +
+ *                             「Cookie 登录」次级入口。符合产品规范 §12（扫码为主，Cookie 兜底）。
+ *  2. [LoginStage.QR]      —— 全屏 WebView，加载网易云官方登录页，扫码 / 验证码 / 邮箱
+ *                             都由网易自己处理，成功后从 CookieManager 抓带 MUSIC_U 的 Cookie。
+ *  3. [LoginStage.COOKIE]  —— 独立 Cookie 登录页：粘贴浏览器里的 MUSIC_U 登录。
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -82,103 +77,355 @@ fun LoginScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val pageLoaded by viewModel.pageLoaded.collectAsStateWithLifecycle()
+    var stage by remember { mutableStateOf(LoginStage.ENTRY) }
     var webView by remember { mutableStateOf<WebView?>(null) }
-    var showAdvanced by remember { mutableStateOf(false) }
-    var advancedInput by remember { mutableStateOf("") }
+    var cookieInput by remember { mutableStateOf("") }
     val clipboard = LocalClipboardManager.current
 
-    // 监听登录成功。
-    androidx.compose.runtime.LaunchedEffect(state) {
+    // 登录成功：退出登录页（不管 profile 是否已拉取，MUSIC_U 落盘即算登录成功）。
+    LaunchedEffect(state) {
         if (state is LoginViewModel.LoginState.Success) onLoggedIn()
     }
 
-    BackHandler(enabled = showAdvanced) { showAdvanced = false }
-
-    Column(modifier = modifier.fillMaxSize()) {
-        LoginTopBar(
-            onBack = onBack,
-            webView = webView,
-        )
-
-        // 顶部状态条：根据 state 展示不同文案。
-        LoginStatusBar(
-            state = state,
-            pageLoaded = pageLoaded,
-            onDismissError = viewModel::consumeError,
-        )
-
-        // WebView 主体。
-        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            WebViewLogin(
-                onWebViewReady = { webView = it },
-                onPageStarted = viewModel::onPageStarted,
-                onPageFinished = { wv ->
-                    viewModel.onPageLoaded()
-                    // 官方登录页会在 y.music.163.com 上携带 Set-Cookie。
-                    // 监听页面 URL 变化不可靠，每次加载完都尝试一次更稳。
-                    val cookie = collectWebViewCookies(wv)
-                    viewModel.onWebViewCookies(cookie)
+    when (stage) {
+        LoginStage.ENTRY -> {
+            LoginEntryScreen(
+                onBack = onBack,
+                onScanLogin = {
+                    viewModel.consumeError()
+                    stage = LoginStage.QR
+                },
+                onCookieLogin = {
+                    viewModel.consumeError()
+                    stage = LoginStage.COOKIE
                 },
             )
+        }
 
-            // 错误时盖一层提示。可恢复错误（网络抖动）不盖死，只在顶部状态条提示，
-            // 让用户仍能在 WebView 里继续扫码 / 验证码登录。
-            val failed = state as? LoginViewModel.LoginState.Failed
-            if (failed != null && !failed.recoverable) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Icon(
-                            Icons.Rounded.WarningAmber,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(36.dp),
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            text = failed.message,
-                            style = MaterialTheme.typography.bodyMedium,
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Button(onClick = viewModel::consumeError) {
-                            Text("重新登录")
+        LoginStage.QR -> {
+            // 从二维码页返回入口页。
+            BackHandler { stage = LoginStage.ENTRY }
+
+            Column(modifier = modifier.fillMaxSize()) {
+                LoginTopBar(
+                    title = "扫码登录",
+                    onBack = { stage = LoginStage.ENTRY },
+                    onRefresh = { webView?.reload() },
+                )
+
+                LoginStatusBar(
+                    state = state,
+                    pageLoaded = pageLoaded,
+                    onDismissError = viewModel::consumeError,
+                )
+
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    WebViewLogin(
+                        onWebViewReady = { webView = it },
+                        onPageStarted = viewModel::onPageStarted,
+                        onPageFinished = { wv ->
+                            viewModel.onPageLoaded()
+                            val cookie = collectWebViewCookies(wv)
+                            viewModel.onWebViewCookies(cookie)
+                        },
+                    )
+
+                    val failed = state as? LoginViewModel.LoginState.Failed
+                    if (failed != null && !failed.recoverable) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(24.dp),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Icon(
+                                    Icons.Rounded.WarningAmber,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(36.dp),
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    text = failed.message,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    textAlign = TextAlign.Center,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Spacer(Modifier.height(16.dp))
+                                Button(onClick = viewModel::consumeError) {
+                                    Text("重新登录")
+                                }
+                            }
                         }
                     }
                 }
+
+                // 兜底入口：扫码不便时可直接切到 Cookie 登录。
+                TextButton(
+                    onClick = {
+                        viewModel.consumeError()
+                        stage = LoginStage.COOKIE
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(vertical = 4.dp),
+                ) {
+                    Text("扫码不方便？使用 Cookie 登录")
+                }
+
+                LoginPrivacyHint()
             }
         }
 
-        // 折叠的高级选项（Cookie 兜底）。
-        AdvancedPanel(
-            expanded = showAdvanced,
-            onToggle = { showAdvanced = !showAdvanced },
-            input = advancedInput,
-            onInputChange = {
-                advancedInput = it
-                viewModel.consumeError()
-            },
-            onPasteFromClipboard = {
-                clipboard.getText()?.text?.let { advancedInput = it }
-            },
-            onSubmit = { viewModel.submitManualCookie(advancedInput) },
+        LoginStage.COOKIE -> {
+            BackHandler { stage = LoginStage.ENTRY }
+
+            CookieLoginScreen(
+                state = state,
+                input = cookieInput,
+                onInputChange = {
+                    cookieInput = it
+                    viewModel.consumeError()
+                },
+                onPaste = {
+                    clipboard.getText()?.text?.let { cookieInput = it }
+                },
+                onSubmit = { viewModel.submitManualCookie(cookieInput) },
+                onBack = { stage = LoginStage.ENTRY },
+            )
+        }
+    }
+}
+
+/** 登录页的三个子页面。 */
+private enum class LoginStage { ENTRY, QR, COOKIE }
+
+/**
+ * 登录入口页（默认落地页）：极简，符合产品规范 §12。
+ * 主视觉是 Melody Logo + 一句引导，主按钮「扫码登录」，次级「Cookie 登录」。
+ */
+@Composable
+private fun LoginEntryScreen(
+    onBack: () -> Unit,
+    onScanLogin: () -> Unit,
+    onCookieLogin: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface)
+            .statusBarsPadding()
+            .navigationBarsPadding(),
+    ) {
+        // 顶栏：返回。
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 6.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回")
+            }
+        }
+
+        // 主体：Logo + 引导语 + 登录按钮。
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Surface(
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.size(96.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Rounded.MusicNote,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(52.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(28.dp))
+            Text(
+                text = "登录网易云音乐",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = "登录后即可播放、收藏与同步你的音乐",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+
+        // 底部按钮区。
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+        ) {
+            Button(
+                onClick = onScanLogin,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Icon(Icons.Rounded.QrCode2, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("扫码登录", style = MaterialTheme.typography.titleMedium)
+            }
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(
+                onClick = onCookieLogin,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Icon(Icons.Rounded.Cookie, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Cookie 登录", style = MaterialTheme.typography.titleMedium)
+            }
+        }
+    }
+}
+
+/**
+ * 独立 Cookie 登录页：粘贴浏览器里复制出来的 Cookie（核心是 MUSIC_U）。
+ * 独立成页，替代早先藏在「高级选项」折叠面板里的兜底入口。
+ */
+@Composable
+private fun CookieLoginScreen(
+    state: LoginViewModel.LoginState,
+    input: String,
+    onInputChange: (String) -> Unit,
+    onPaste: () -> Unit,
+    onSubmit: () -> Unit,
+    onBack: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface)
+            .statusBarsPadding()
+            .navigationBarsPadding(),
+    ) {
+        LoginTopBar(
+            title = "Cookie 登录",
+            onBack = onBack,
+            onRefresh = null,
         )
 
-        LoginPrivacyHint()
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp),
+        ) {
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = "粘贴你的网易云登录 Cookie",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "在浏览器登录 music.163.com 后，复制包含 MUSIC_U 的 Cookie 到这里。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Spacer(Modifier.height(20.dp))
+
+            OutlinedTextField(
+                value = input,
+                onValueChange = onInputChange,
+                placeholder = { Text("MUSIC_U=xxxxx; __csrf=yyy") },
+                minLines = 4,
+                maxLines = 8,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            // 错误提示（仅当失败且非可恢复时展示）。
+            val failed = state as? LoginViewModel.LoginState.Failed
+            if (failed != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Rounded.WarningAmber,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = failed.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Button(
+                onClick = onSubmit,
+                enabled = input.isNotBlank() && state !is LoginViewModel.LoginState.Loading,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                if (state is LoginViewModel.LoginState.Loading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                } else {
+                    Text("登录", style = MaterialTheme.typography.titleMedium)
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            TextButton(
+                onClick = onPaste,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Rounded.ContentPaste, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("从剪贴板粘贴")
+            }
+        }
     }
 }
 
 @Composable
 private fun LoginTopBar(
+    title: String,
     onBack: () -> Unit,
-    webView: WebView?,
+    onRefresh: (() -> Unit)?,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -196,19 +443,17 @@ private fun LoginTopBar(
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回")
             }
             Text(
-                text = "登录网易云",
+                text = title,
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f),
                 textAlign = TextAlign.Center,
             )
-            IconButton(
-                onClick = { webView?.reload() },
-                enabled = webView != null,
-            ) {
-                Icon(
-                    Icons.Rounded.Cookie,
-                    contentDescription = "刷新",
-                )
+            if (onRefresh != null) {
+                IconButton(onClick = onRefresh) {
+                    Icon(Icons.Rounded.Cookie, contentDescription = "刷新")
+                }
+            } else {
+                Spacer(Modifier.width(48.dp))
             }
         }
     }
@@ -320,9 +565,6 @@ private fun WebViewLogin(
                 }
                 onWebViewReady(this)
             }.also { wv ->
-                // WebView 默认会拒掉第三方 Cookie —— 网易在 y.music.163.com 上写 Cookie
-                // 必须打开，否则登录态根本拿不到。注意 setAcceptThirdPartyCookies 必须
-                // 传 WebView 本身（不是 settings），且 API 21+ 才能调用。
                 @Suppress("DEPRECATION")
                 CookieManager.getInstance().run {
                     setAcceptCookie(true)
@@ -334,18 +576,12 @@ private fun WebViewLogin(
                     }
 
                     override fun onPageFinished(view: WebView?, url: String?) {
-                        // 登录成功后的关键跳转：官方页从 music.163.com/m/login 跳到
-                        // y.music.163.com（首页）时，Cookie 里的 MUSIC_U + __csrf 才算最终落定。
-                        // 这里在每次页面加载完成后都抓一次，抓到 MUSIC_U 就交给上层判定。
                         if (view != null) onPageFinished(view)
                     }
 
                     override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
-                        // 不拦截任何跳转，让网易自己的登录流程正常进行。
-                        // 但登录成功后页面会跳转，此时主动抓一次 Cookie，比等 onPageFinished 更及时。
                         val target = request?.url?.toString().orEmpty()
                         if (view != null && (target.contains("y.music.163.com") || target.contains("music.163.com/#/"))) {
-                            // 延迟一点抓，等 Set-Cookie 真正写入 CookieManager。
                             view.postDelayed({ onPageFinished(view) }, 300L)
                         }
                         return false
@@ -370,80 +606,6 @@ private fun collectWebViewCookies(webView: WebView): String? {
     }
     if (pairs.isEmpty()) return null
     return CookieParser.join(pairs)
-}
-
-@Composable
-private fun AdvancedPanel(
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    input: String,
-    onInputChange: (String) -> Unit,
-    onPasteFromClipboard: () -> Unit,
-    onSubmit: () -> Unit,
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding(),
-    ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(MaterialTheme.shapes.large)
-                    .clickable(onClick = onToggle)
-                    .padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    Icons.Rounded.Cookie,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = "高级：粘贴 MUSIC_U 登录",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                Icon(
-                    if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            AnimatedVisibility(visible = expanded) {
-                Column(modifier = Modifier.padding(top = 8.dp)) {
-                    OutlinedTextField(
-                        value = input,
-                        onValueChange = onInputChange,
-                        label = { Text("MUSIC_U 或完整 Cookie") },
-                        placeholder = { Text("MUSIC_U=xxxxx; __csrf=yyy") },
-                        minLines = 2,
-                        maxLines = 5,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.medium,
-                    )
-                    Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                        TextButton(onClick = onPasteFromClipboard) {
-                            Text("从剪贴板粘贴")
-                        }
-                        Spacer(modifier = Modifier.weight(1f))
-                        Button(
-                            onClick = onSubmit,
-                            enabled = input.isNotBlank(),
-                            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 6.dp),
-                        ) {
-                            Text("用这个 Cookie 登录")
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable

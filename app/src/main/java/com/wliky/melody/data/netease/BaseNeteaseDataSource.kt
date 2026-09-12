@@ -233,9 +233,13 @@ abstract class BaseNeteaseDataSource(
         }
         session.saveSession(normalized, "")
 
-        // 拉取用户信息，但**不要**把「任何失败」都当成「cookie 失效」：
-        // 网络抖动、风控 403、超时这些可恢复错误，应该保留会话让上层重试；
-        // 只有服务端明确说「未登录 / 登录态失效」（301 等）才真正清掉会话。
+        // 登录成功与否，**只看 Cookie 里有没有有效的 MUSIC_U**（见 CookieParser.hasMusicU）。
+        // 用户信息（昵称 / 头像 / uid）是另一回事：它异步、可降级地补拉，
+        // 拉不到也不清会话、不报「登录失败」—— 只要 MUSIC_U 还在，就算已登录。
+        //
+        // 之前的实现把「拉 profile」当成了登录成功的硬门槛，结果网络抖动 / 风控 403 /
+        // 接口拿不到 profile 时都会误报「暂时无法获取用户信息」，甚至误清会话。
+        // 现在只在服务端明确返回「未登录（301）」时才清会话，其余一律保留。
         val profile = try {
             fetchProfile()
         } catch (cancellation: CancellationException) {
@@ -243,19 +247,18 @@ abstract class BaseNeteaseDataSource(
         } catch (t: Throwable) {
             val error = t.toAppError()
             if (error is AppError.Unauthorized) {
-                // 明确判定登录态失效：清掉会话，让用户重新登录。
+                // 只有服务端明确说「未登录 / 登录态失效」才清掉会话。
                 session.clear()
                 throw AppError.Unauthorized("这份 Cookie 已失效，请重新登录")
             }
-            // 网络 / 风控 / 解析抖动：保留会话，直接抛出可重试的错误，
-            // 由上层决定重试还是提示，而不是误判成「cookie 失效」。
-            throw error
+            // 网络 / 风控 / 解析抖动：保留会话，静默降级为「已登录但暂无用户信息」，
+            // 由上层在后续进入首页时再后台补拉。
+            return null
         }
 
         if (profile == null) {
-            // fetchProfile 正常返回但拿不到 profile（接口结构变化），
-            // 这属于「凭据没问题但暂时取不到信息」，也不该直接清会话。
-            throw AppError.Server("暂时无法获取用户信息，请稍后重试")
+            // 凭据没问题但暂时取不到用户信息：同样静默降级，不清会话。
+            return null
         }
         session.updateUserId(profile.userId)
         if (!session.hasAuthToken()) session.saveSession(normalized, profile.userId)
@@ -337,8 +340,23 @@ abstract class BaseNeteaseDataSource(
 
     override suspend fun fetchProfile(): UserProfile? {
         val response = call(NeteaseEndpoint.ACCOUNT).objOrNull() ?: return null
-        val profileJson = response.obj("profile") ?: response.obj("data").obj("profile") ?: return null
-        return decode(ProfileDto.serializer(), profileJson)?.toDomain()
+        // 优先取 profile 节点；拿不到时兜底 account 节点（eapi / weapi 两种链路返回结构不同，
+        // account 里同样带 id / nickname / avatarUrl，Ncrust 即按 account 兜底解析）。
+        val profileJson = response.obj("profile")
+            ?: response.obj("data").obj("profile")
+            ?: response.obj("account")
+            ?: response.obj("data").obj("account")
+            ?: return null
+        val dto = decode(ProfileDto.serializer(), profileJson) ?: return null
+        // account 节点的 id 字段名是 "id" 而非 "userId"，userId 缺省时用 id 兜底。
+        val resolvedUserId = dto.userId.orEmpty()
+            .ifBlank { profileJson.str("id").orEmpty() }
+        val domain = dto.toDomain()
+        return if (domain.userId.isBlank() && resolvedUserId.isNotBlank()) {
+            domain.copy(userId = resolvedUserId)
+        } else {
+            domain
+        }
     }
 
     override suspend fun logout() {

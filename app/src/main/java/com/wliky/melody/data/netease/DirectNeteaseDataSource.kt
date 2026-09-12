@@ -91,8 +91,33 @@ class DirectNeteaseDataSource @Inject constructor(
             }
         }
 
+        // 账号信息接口（/api/w/nuser/account/get）在 weapi 下经常被风控拦掉（返回空 profile，
+        // 表现就是「暂时无法获取用户信息」）。Ncrust 用 eapi 的 /eapi/w/nuser/account/get 稳定得多，
+        // 这里对 ACCOUNT 端点做 weapi → eapi 兜底重试。
+        if (endpoint == NeteaseEndpoint.ACCOUNT) {
+            val viaWeapi = runCatching {
+                requestViaWeapi(endpoint, payload, mobileHeaders = true)
+            }.getOrNull()
+            // weapi 拿到了有效 profile / account 节点就直接用；否则改走 eapi。
+            if (viaWeapi != null && viaWeapi.hasAccountData()) return viaWeapi
+            val viaEapi = runCatching { requestViaEapi(endpoint, payload) }
+            return viaEapi.getOrElse {
+                viaWeapi?.let { return it }
+                throw AppError.Server("登录信息获取失败，请稍后重试")
+            }
+        }
+
         // 账号信息等移动端接口（/api/w/ 前缀）需要移动端 UA，否则容易被风控拦掉。
         return requestViaWeapi(endpoint, payload, mobileHeaders = endpoint.requiresMobileHeader)
+    }
+
+    /** 判断账号接口响应是否真的带回了 profile 或 account 节点（而非风控空响应）。 */
+    private fun JsonElement.hasAccountData(): Boolean {
+        val obj = objOrNull() ?: return false
+        return obj.obj("profile") != null ||
+            obj.obj("account") != null ||
+            obj.obj("data")?.obj("profile") != null ||
+            obj.obj("data")?.obj("account") != null
     }
 
     private suspend fun requestViaWeapi(
@@ -124,7 +149,9 @@ class DirectNeteaseDataSource @Inject constructor(
         val response = apiClient.postForm(url, form, eapiHeaders())
         mergeCookies(response.setCookies())
         response.requireSuccess()
-        return response.parseBody(url)
+        val element = response.parseBody(url)
+        throwIfLoginRequired(element)
+        return element
     }
 
     /**
