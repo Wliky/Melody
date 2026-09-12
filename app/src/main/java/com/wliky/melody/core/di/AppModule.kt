@@ -13,6 +13,8 @@ import com.wliky.melody.core.database.PlaybackEventDao
 import com.wliky.melody.core.database.PlaybackHistoryDao
 import com.wliky.melody.core.database.SearchHistoryDao
 import com.wliky.melody.core.network.MelodyJson
+import com.wliky.melody.core.player.Media3PlayerController
+import com.wliky.melody.core.player.PlayerController
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -70,4 +72,8 @@ abstract class BindingsModule {
 
     @Binds
     abstract fun bindClock(impl: SystemClock): Clock
+
+    @Binds
+    @Singleton
+    abstract fun bindPlayerController(impl: Media3PlayerController): PlayerController
 }
