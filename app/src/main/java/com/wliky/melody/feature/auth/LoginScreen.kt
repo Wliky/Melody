@@ -204,7 +204,7 @@ private fun LoginTopBar(
                 enabled = webView != null,
             ) {
                 Icon(
-                    Icons.Rounded.Refresh,
+                    Icons.Rounded.Cookie,
                     contentDescription = "刷新",
                 )
             }
@@ -315,9 +315,11 @@ private fun WebViewLogin(
                     // WebView 默认会拒掉第三方 Cookie —— 网易在 y.music.163.com 上写 Cookie
                     // 必须打开，否则登录态根本拿不到。
                     @Suppress("DEPRECATION")
-                    cookieManager.setAcceptCookie(true)
-                    @Suppress("DEPRECATION")
-                    cookieManager.setAcceptThirdPartyCookies(this, true)
+                    run {
+                        val cm = CookieManager.getInstance()
+                        cm.setAcceptCookie(true)
+                        cm.setAcceptThirdPartyCookies(this@apply, true)
+                    }
                     cacheMode = WebSettings.LOAD_DEFAULT
                     userAgentString = "Mozilla/5.0 (Linux; Android 12; Mobile; rv:124.0) " +
                         "Gecko/124.0 Firefox/124.0"
@@ -450,15 +452,6 @@ private fun LoginPrivacyHint() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-}
-
-/**
- * 一个最小的 "Refresh" 图标，避免引入 Rounded.Refresh 的版本兼容坑。
- * 直接用 Material Icons Extended 提供的 AutoMirrored.Rounded.Refresh，
- * 不行就退回 Resource 图标。这里选用最常见的 Rounded.Refresh。
- */
-private object RefreshIcon {
-    val Icon = androidx.compose.material.icons.Icons.Rounded.Refresh
 }
 
 private val LOGIN_URL = "https://music.163.com/m/login"

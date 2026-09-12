@@ -246,6 +246,7 @@ fun AnimatedFullPlayer(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun FullPlayerScreen(
     snapshot: PlaybackSnapshot,
@@ -467,6 +468,7 @@ private fun PlayerTopBar(
     }
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun SeekBar(
     snapshot: PlaybackSnapshot,

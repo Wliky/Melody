@@ -58,6 +58,7 @@ import java.util.Locale
  * 顶部一行「热门 / 最新」分段控件，下方无限滚动的评论列表；
  * 滚动到底自动加载下一页；首屏失败时给出 ErrorState + 重试。
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun CommentsPanel(
     state: CommentsViewModel.UiState,
@@ -128,6 +129,7 @@ fun CommentsPanel(
     }
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun SortHeader(
     total: Int,
