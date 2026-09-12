@@ -312,17 +312,17 @@ private fun WebViewLogin(
                     javaScriptEnabled = true
                     domStorageEnabled = true
                     mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                    // WebView 默认会拒掉第三方 Cookie —— 网易在 y.music.163.com 上写 Cookie
-                    // 必须打开，否则登录态根本拿不到。
-                    @Suppress("DEPRECATION")
-                    run {
-                        val cm = CookieManager.getInstance()
-                        cm.setAcceptCookie(true)
-                        cm.setAcceptThirdPartyCookies(this@apply, true)
-                    }
                     cacheMode = WebSettings.LOAD_DEFAULT
                     userAgentString = "Mozilla/5.0 (Linux; Android 12; Mobile; rv:124.0) " +
                         "Gecko/124.0 Firefox/124.0"
+                }
+                // WebView 默认会拒掉第三方 Cookie —— 网易在 y.music.163.com 上写 Cookie
+                // 必须打开，否则登录态根本拿不到。注意 API 21+ 才能调
+                // setAcceptThirdPartyCookies，且必须传 WebView 本身而非 settings。
+                @Suppress("DEPRECATION")
+                CookieManager.getInstance().apply {
+                    setAcceptCookie(true)
+                    setAcceptThirdPartyCookies(this@apply /* WebView */, true)
                 }
                 webViewClient = object : WebViewClient() {
                     override fun onPageStarted(view: WebView?, url: String?) {
@@ -455,6 +455,3 @@ private fun LoginPrivacyHint() {
 }
 
 private val LOGIN_URL = "https://music.163.com/m/login"
-
-@Suppress("unused")
-private fun stableId(): String = UUID.randomUUID().toString()
