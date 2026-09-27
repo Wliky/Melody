@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 主题图标（Android 13+ 长按跟随壁纸莫奈取色）：红心音符剪影 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="0"
+        android:pivotY="0"
+        android:scaleX="2.6"
+        android:scaleY="2.6"
+        android:translateX="26"
+        android:translateY="20.1">
+        <path
+            android:fillColor="#FF000000"
+            android:pathData="M14,3.8C17.6,4.6 20.3,6.5 21,10.4C20.5,7.7 19.3,6.3 14,6.7Z" />
+        <path
+            android:fillColor="#FF000000"
+            android:pathData="M12.4,16.6V3.8H14V16.6H12.4Z" />
+        <group
+            android:pivotX="0"
+            android:pivotY="0"
+            android:scaleX="0.6"
+            android:scaleY="0.6"
+            android:translateX="-0.7"
+            android:translateY="9.7">
+            <path
+                android:fillColor="#FF000000"
+                android:pathData="M12,21.35l-1.45,-1.32C5.4,15.36 2,12.28 2,8.5 2,5.42 4.42,3 7.5,3c1.74,0 3.41,0.81 4.5,2.09C13.09,3.81 14.76,3 16.5,3 19.58,3 22,5.42 22,8.5c0,3.78 -3.4,6.86 -8.55,11.54L12,21.35z" />
+        </group>
+    </group>
+</vector>

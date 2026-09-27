@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  网易云音乐 CDN（*.music.126.net）的播放地址常为 http 明文链接，
+  Android 9+ 默认禁止明文流量，这里按域名精准放行，其余仍强制 https。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">music.126.net</domain>
+    </domain-config>
+</network-security-config>

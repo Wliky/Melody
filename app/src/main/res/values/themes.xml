@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 阶段 0 占位主题：纯系统主题，真正的 Compose 主题在阶段 1 设计系统里做 -->
+    <style name="Theme.Melody" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
