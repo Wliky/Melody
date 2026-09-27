@@ -1,6 +1,5 @@
 package com.wliky.melody.ui.components
 
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -37,7 +36,8 @@ fun CoverImage(
     url: String?,
     contentDescription: String?,
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(10.dp),
+    // 默认圆角对齐 token small：全应用未显式传 shape 的封面统一 12dp（原 10dp 为散落旧值）
+    shape: Shape = MaterialTheme.shapes.small,
     contentScale: ContentScale = ContentScale.Crop,
     requestSizePx: Int = DEFAULT_REQUEST_SIZE_PX,
 ) {

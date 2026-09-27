@@ -9,7 +9,6 @@ import coil3.memory.MemoryCache
 import com.wliky.melody.data.error.AppResult
 import com.wliky.melody.data.remote.CookieStore
 import com.wliky.melody.data.remote.NeteaseClient
-import com.wliky.melody.player.LyricsNotifier
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,10 +25,6 @@ class MelodyApp : Application() {
 
     @Inject
     lateinit var client: NeteaseClient
-
-    /** 注入即可：构造时启动开关/播放/进度的订阅，通知栏歌词常驻可用。 */
-    @Inject
-    lateinit var lyricsNotifier: LyricsNotifier
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 

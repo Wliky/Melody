@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit
  */
 class NeteaseClient(
     private val okHttpClient: OkHttpClient,
+    private val cookieStore: CookieStore? = null,
 ) {
 
     val json: Json = Json {
@@ -28,12 +29,19 @@ class NeteaseClient(
     }
 
     /**
+     * 写接口（歌单增删等）需要的 csrf token：必须与 cookie 里的 `__csrf` 一致，
+     * 否则服务端返回 524「当前环境异常」。读接口传空字符串即可。
+     */
+    fun csrfToken(): String = cookieStore?.csrfToken().orEmpty()
+
+    /**
      * 发起 weapi 调用并解析为 JsonObject，业务码 200 才算成功（常规接口用这个）。
      */
     suspend fun callWeapi(
         endpoint: String,
         payloadJson: String,
-    ): AppResult<JsonObject> = when (val raw = post(endpoint, payloadJson)) {
+        extraHeaders: Map<String, String> = emptyMap(),
+    ): AppResult<JsonObject> = when (val raw = post(endpoint, payloadJson, extraHeaders)) {
         is AppResult.Failure -> raw
         is AppResult.Success -> {
             val code = (raw.data["code"]?.toString())?.toIntOrNull() ?: 200

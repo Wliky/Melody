@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.Icon
@@ -28,12 +27,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.wliky.melody.data.model.Podcast
 import com.wliky.melody.ui.components.CoverImage
 import com.wliky.melody.ui.components.ErrorState
 import com.wliky.melody.ui.components.SkeletonBox
+import com.wliky.melody.ui.theme.MelodySize
 import com.wliky.melody.ui.theme.Spacing
 
 /** 热门电台列表页：点电台进入节目列表。 */
@@ -104,7 +103,7 @@ private fun PodcastRow(podcast: Podcast, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(MaterialTheme.shapes.small)
             .clickable(onClick = onClick)
             .padding(vertical = Spacing.xs),
         verticalAlignment = Alignment.CenterVertically,
@@ -113,8 +112,9 @@ private fun PodcastRow(podcast: Podcast, onClick: () -> Unit) {
             url = podcast.coverUrl,
             contentDescription = podcast.name,
             modifier = Modifier
-                .size(64.dp)
-                .clip(RoundedCornerShape(12.dp)),
+                // 播客节目行语义同歌单行，用歌单行封面档（原 64dp 不在档位体系内）
+                .size(MelodySize.coverM)
+                .clip(MaterialTheme.shapes.small),
         )
         Spacer(modifier = Modifier.width(Spacing.md))
         Column(modifier = Modifier.weight(1f)) {
@@ -152,8 +152,9 @@ private fun PodcastLoading() {
             SkeletonBox(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(72.dp)
-                    .clip(RoundedCornerShape(12.dp)),
+                    // 与 PodcastRow 对齐：coverM 56 + 上下 padding，行内容高度
+                    .height(MelodySize.coverM + Spacing.xs * 2)
+                    .clip(MaterialTheme.shapes.small),
             )
         }
     }

@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.Icon
@@ -173,7 +172,8 @@ private fun ToplistCard(toplist: Toplist, onClick: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f),
-            shape = RoundedCornerShape(18.dp),
+            // 与首页歌单卡同档 token（medium=16），榜单卡与歌单卡视觉统一
+            shape = MaterialTheme.shapes.medium,
         )
         Text(
             text = toplist.name,
@@ -209,7 +209,7 @@ private fun ToplistLoading() {
                     modifier = Modifier
                         .width(ToplistCardWidth)
                         .aspectRatio(1f)
-                        .clip(RoundedCornerShape(18.dp)),
+                        .clip(MaterialTheme.shapes.medium),
                 )
             }
         }
@@ -218,7 +218,7 @@ private fun ToplistLoading() {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(64.dp)
-                    .clip(RoundedCornerShape(12.dp)),
+                    .clip(MaterialTheme.shapes.small),
             )
         }
     }

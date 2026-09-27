@@ -54,6 +54,18 @@ data class Playlist(
     val playCount: Long = 0,
     val trackCount: Int = 0,
     val creatorName: String? = null,
+    /** 创建者头像 */
+    val creatorAvatarUrl: String? = null,
+    /** 歌单标签（如 华语/流行） */
+    val tags: List<String> = emptyList(),
+    /** 评论数 */
+    val commentCount: Long = 0,
+    /** 简介 */
+    val description: String? = null,
+    /** 是否已收藏（subscribe 状态） */
+    val subscribed: Boolean = false,
+    /** 歌单特殊类型：5 =「我喜欢的音乐」红心歌单 */
+    val specialType: Int = 0,
 )
 
 /** 排行榜条目（榜单 id 可直接当歌单 id 打开现有歌单详情） */

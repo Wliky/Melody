@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -25,6 +24,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.wliky.melody.ui.theme.MelodySize
 import com.wliky.melody.ui.theme.Spacing
 
 /**
@@ -33,7 +33,7 @@ import com.wliky.melody.ui.theme.Spacing
 @Composable
 fun SkeletonBox(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(8.dp),
+    shape: Shape = MaterialTheme.shapes.extraSmall,
 ) {
     val transition = rememberInfiniteTransition(label = "skeleton")
     val alpha by transition.animateFloat(
@@ -65,8 +65,8 @@ fun SongRowSkeleton(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         SkeletonBox(
-            modifier = Modifier.size(52.dp),
-            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.size(MelodySize.coverS),
+            shape = MaterialTheme.shapes.small,
         )
         Spacer(modifier = Modifier.width(Spacing.md))
         Column {

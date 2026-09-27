@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Refresh
@@ -97,7 +97,7 @@ fun LoginScreen(
                         else -> SkeletonBox(
                             modifier = Modifier
                                 .size(220.dp)
-                                .clip(RoundedCornerShape(24.dp)),
+                                .clip(MaterialTheme.shapes.large),
                         )
                     }
                 }
@@ -130,7 +130,7 @@ private fun QrSection(
             content = qrContent,
             modifier = Modifier
                 .size(220.dp)
-                .clip(RoundedCornerShape(24.dp)),
+                .clip(MaterialTheme.shapes.large),
         )
         val hint = when (qrState) {
             QrLoginState.WaitingConfirm -> "已扫码，请在手机上确认"
@@ -167,7 +167,7 @@ private fun LoginSuccess(
             url = user.avatarUrl,
             contentDescription = user.nickname,
             modifier = Modifier.size(80.dp),
-            shape = RoundedCornerShape(40.dp),
+            shape = CircleShape,
         )
         Text(
             text = user.nickname,

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -17,7 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.BarChart
@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.wliky.melody.data.model.PlayRecordEntry
 import com.wliky.melody.ui.components.CoverImage
+import com.wliky.melody.ui.theme.MelodySize
 import com.wliky.melody.ui.theme.Spacing
 
 /**
@@ -55,7 +56,9 @@ fun ProfileScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface),
+            .background(MaterialTheme.colorScheme.surface)
+            // 二级页避让挖孔屏 / 状态栏
+            .statusBarsPadding(),
     ) {
         // 顶栏
         Box(modifier = Modifier.fillMaxWidth()) {
@@ -103,7 +106,7 @@ fun ProfileScreen(
                             imageVector = Icons.Rounded.BarChart,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(MelodySize.iconS),
                         )
                         Spacer(modifier = Modifier.width(Spacing.xs))
                         Text(
@@ -177,7 +180,7 @@ private fun ProfileHeader(state: ProfileViewModel.ProfileUiState) {
             url = state.user?.avatarUrl,
             contentDescription = state.user?.nickname,
             modifier = Modifier
-                .size(96.dp)
+                .size(MelodySize.coverXl)
                 .clip(CircleShape),
         )
         Spacer(modifier = Modifier.height(Spacing.md))
@@ -225,7 +228,7 @@ internal fun PlayRecordRow(
             .clickable(onClick = onClick)
             .background(
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                shape = RoundedCornerShape(12.dp),
+                shape = MaterialTheme.shapes.small,
             )
             .padding(horizontal = Spacing.md, vertical = Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
@@ -245,8 +248,8 @@ internal fun PlayRecordRow(
             url = entry.song.coverUrl,
             contentDescription = entry.song.name,
             modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(8.dp)),
+                .size(MelodySize.coverS)
+                .clip(MaterialTheme.shapes.extraSmall),
         )
         Spacer(modifier = Modifier.width(Spacing.md))
         Column(Modifier.weight(1f)) {

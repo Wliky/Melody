@@ -5,8 +5,15 @@ import androidx.compose.material3.Shapes
 import androidx.compose.ui.unit.dp
 
 /**
- * 大圆角是本项目的视觉基调（现代圆润）。
- * 封面卡片走 extraLarge，列表卡片走 large，按钮走 medium。
+ * 圆角 5 档（唯一来源，页面不得散落 RoundedCornerShape 硬编码）：
+ *
+ * | 档位        | 值   | 用途                       |
+ * |-------------|------|----------------------------|
+ * | extraSmall  | 8dp  | Chip / 标签 / 进度条        |
+ * | small       | 12dp | 所有封面缩略图（统一档）     |
+ * | medium      | 16dp | 卡片容器 / Dialog / 设置分组 |
+ * | large       | 24dp | 大卡片 / 内嵌面板            |
+ * | extraLarge  | 28dp | BottomSheet 顶部            |
  */
 val MelodyShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),

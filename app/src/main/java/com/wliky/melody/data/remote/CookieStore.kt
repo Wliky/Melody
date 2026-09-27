@@ -45,6 +45,13 @@ class CookieStore(private val context: Context) : CookieJar {
     /** 登录态关键 cookie 是否存在 */
     fun hasLoginCookie(): Boolean = inMemory.containsKey("MUSIC_U")
 
+    /**
+     * csrf token：网易写接口（歌单增删等）要求 body 的 `csrf_token`
+     * 与 cookie 中的 `__csrf` 一致，否则服务端返回 524「当前环境异常」。
+     * 由 Set-Cookie 写入（[saveFromResponse]），登录后自动带上。
+     */
+    fun csrfToken(): String = inMemory["__csrf"].orEmpty()
+
     /** 游客态 cookie（MUSIC_A 匿名 token）是否存在：未登录时搜索等接口依赖它 */
     fun hasAnonymousCookie(): Boolean = inMemory.containsKey("MUSIC_A")
 

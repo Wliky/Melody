@@ -43,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -58,9 +59,13 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.wliky.melody.data.model.Playlist
 import com.wliky.melody.data.model.Song
-import com.wliky.melody.playlist.formatDuration
-import com.wliky.melody.ui.components.CoverImage
+import com.wliky.melody.player.AddToPlaylistSheet
+import com.wliky.melody.ui.components.PlaylistRow
+import com.wliky.melody.ui.components.SongRow
+import com.wliky.melody.ui.theme.MelodySize
 import com.wliky.melody.ui.theme.Spacing
+import com.wliky.melody.ui.util.formatCount
+import com.wliky.melody.ui.util.formatDuration
 
 /**
  * 搜索页：搜索框（自动聚焦）→ 未输入时展示热搜榜；输入中展示联想词；
@@ -75,6 +80,9 @@ fun SearchScreen(
 ) {
     val state = viewModel.uiState
     val focusRequester = remember { FocusRequester() }
+
+    // 长按目标歌曲（收藏到歌单弹层）
+    var songActionFor: List<Long>? by remember { mutableStateOf(null) }
 
     BackHandler(onBack = onBack)
 
@@ -115,7 +123,7 @@ fun SearchScreen(
                         imageVector = Icons.Rounded.Search,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(MelodySize.iconS),
                     )
                     Spacer(modifier = Modifier.width(Spacing.sm))
                     BasicTextField(
@@ -137,7 +145,7 @@ fun SearchScreen(
                     if (state.keyword.isNotEmpty()) {
                         IconButton(
                             onClick = viewModel::clearKeyword,
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(MelodySize.iconS),
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.Close,
@@ -182,6 +190,7 @@ fun SearchScreen(
                 state = state,
                 onPlaySongAt = viewModel::playSongAt,
                 onOpenPlaylist = onOpenPlaylist,
+                onSongLongPress = { song -> songActionFor = listOf(song.id) },
             )
 
             else -> HotContent(hot = state.hot, onSelect = { viewModel.search(it) })
@@ -189,6 +198,13 @@ fun SearchScreen(
     }
 
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    songActionFor?.let { ids ->
+        AddToPlaylistSheet(
+            songIds = ids,
+            onDismiss = { songActionFor = null },
+        )
+    }
 }
 
 // ── 热搜 ──
@@ -215,7 +231,7 @@ private fun HotContent(hot: List<String>, onSelect: (String) -> Unit) {
                     imageVector = Icons.Rounded.Whatshot,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(MelodySize.iconS),
                 )
                 Spacer(modifier = Modifier.width(Spacing.xs))
                 Text(
@@ -291,6 +307,7 @@ private fun SearchResultContent(
     state: SearchViewModel.SearchUiState,
     onPlaySongAt: (Int) -> Unit,
     onOpenPlaylist: (Playlist) -> Unit,
+    onSongLongPress: (Song) -> Unit,
 ) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
 
@@ -313,7 +330,25 @@ private fun SearchResultContent(
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
                     itemsIndexed(state.songs, key = { _, s -> s.id }) { index, song ->
-                        SongRow(song = song, onClick = { onPlaySongAt(index) })
+                        SongRow(
+                            title = song.name,
+                            subtitle = song.subtitle,
+                            artworkUrl = song.coverUrl,
+                            modifier = Modifier.padding(horizontal = Spacing.screen),
+                            onClick = { onPlaySongAt(index) },
+                            onLongClick = { onSongLongPress(song) },
+                            trailing = if (song.durationMs > 0) {
+                                {
+                                    Text(
+                                        text = formatDuration(song.durationMs),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            } else {
+                                null
+                            },
+                        )
                     }
                 }
             }
@@ -323,93 +358,17 @@ private fun SearchResultContent(
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
                     itemsIndexed(state.playlists, key = { _, p -> p.id }) { _, playlist ->
-                        PlaylistRow(playlist = playlist, onClick = { onOpenPlaylist(playlist) })
+                        val creator = playlist.creatorName?.let { " · $it" } ?: ""
+                        PlaylistRow(
+                            title = playlist.name,
+                            subtitle = "${playlist.trackCount}首$creator · ${formatCount(playlist.playCount)}次播放",
+                            coverUrl = playlist.coverUrl,
+                            modifier = Modifier.padding(horizontal = Spacing.screen),
+                            onClick = { onOpenPlaylist(playlist) },
+                        )
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun SongRow(song: Song, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = Spacing.screen, vertical = Spacing.sm),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        CoverImage(
-            url = song.coverUrl,
-            contentDescription = song.name,
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(8.dp)),
-        )
-        Spacer(modifier = Modifier.width(Spacing.md))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = song.name,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = song.subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
-        Spacer(modifier = Modifier.width(Spacing.sm))
-        if (song.durationMs > 0) {
-            Text(
-                text = formatDuration(song.durationMs),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun PlaylistRow(playlist: Playlist, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = Spacing.screen, vertical = Spacing.sm),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        CoverImage(
-            url = playlist.coverUrl,
-            contentDescription = playlist.name,
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(8.dp)),
-        )
-        Spacer(modifier = Modifier.width(Spacing.md))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = playlist.name,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            val creator = playlist.creatorName?.let { " · $it" } ?: ""
-            Text(
-                text = "${playlist.trackCount}首$creator · ${formatCount(playlist.playCount)}次播放",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp),
-            )
         }
     }
 }
@@ -444,17 +403,5 @@ private fun ErrorHint(message: String) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-    }
-}
-
-private fun formatCount(count: Long): String {
-    val wan = count / 10_000.0
-    val yi = count / 100_000_000.0
-    return when {
-        count >= 100_000_000 ->
-            if (yi % 1.0 == 0.0) "${yi.toInt()}亿" else "%.1f亿".format(yi)
-        count >= 10_000 ->
-            if (wan % 1.0 == 0.0) "${wan.toInt()}万" else "%.1f万".format(wan)
-        else -> count.toString()
     }
 }

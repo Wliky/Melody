@@ -1,5 +1,6 @@
 package com.wliky.melody.data.repo
 
+import com.wliky.melody.data.error.AppError
 import com.wliky.melody.data.error.AppResult
 import com.wliky.melody.data.model.Album
 import com.wliky.melody.data.model.Artist
@@ -7,6 +8,9 @@ import com.wliky.melody.data.model.Banner
 import com.wliky.melody.data.model.Playlist
 import com.wliky.melody.data.model.Song
 import com.wliky.melody.data.remote.NeteaseClient
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -128,4 +132,60 @@ class HomeRepository @Inject constructor(
                 AppResult.success(songs)
             }
         }
+
+    /**
+     * 歌单完整详情（`/weapi/v6/playlist/detail`，取 `playlist` 元信息：标签/简介/创建者/统计）。
+     */
+    suspend fun getPlaylistDetail(playlistId: Long): AppResult<Playlist> =
+        when (val res = client.callWeapi(
+            "/weapi/v6/playlist/detail",
+            """{"id":$playlistId,"n":1,"s":0}""",
+        )) {
+            is AppResult.Failure -> res
+            is AppResult.Success -> {
+                val pl = res.data["playlist"]?.jsonObject
+                if (pl == null) {
+                    AppResult.failure(AppError.Parse("歌单详情为空"))
+                } else {
+                    AppResult.success(pl.toPlaylist())
+                }
+            }
+        }
+
+    /**
+     * 收藏 / 取消收藏歌单。
+     *
+     * 参照 NeteaseCloudMusicApi 的 playlist_subscribe：**t 拼在 URL 路径里**
+     * （`/weapi/playlist/subscribe/1` 收藏、`/2` 取消），body 只带 `id`；
+     * 之前把 t 放 body 会被服务端忽略导致收藏永远不生效。
+     */
+    suspend fun subscribePlaylist(playlistId: Long, subscribe: Boolean): AppResult<Unit> =
+        when (val res = client.callWeapi(
+            "/weapi/playlist/subscribe/${if (subscribe) 1 else 2}",
+            """{"id":$playlistId,"csrf_token":"${client.csrfToken()}"}""",
+        )) {
+            is AppResult.Failure -> res
+            is AppResult.Success -> AppResult.success(Unit)
+        }
+}
+
+/** playlist JSON → [Playlist]，容忍缺失字段。 */
+internal fun JsonObject.toPlaylist(): Playlist {
+    val creator = this["creator"]?.jsonObject
+    return Playlist(
+        id = this["id"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
+        name = this["name"]?.jsonPrimitive?.content ?: "",
+        coverUrl = this["coverImgUrl"]?.jsonPrimitive?.content
+            ?: this["picUrl"]?.jsonPrimitive?.content,
+        playCount = this["playCount"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
+        trackCount = this["trackCount"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+        creatorName = creator?.get("nickname")?.jsonPrimitive?.content,
+        creatorAvatarUrl = creator?.get("avatarUrl")?.jsonPrimitive?.content,
+        tags = this["tags"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList(),
+        commentCount = this["commentCount"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
+        description = this["description"]?.jsonPrimitive?.contentOrNull,
+        subscribed = this["subscribed"]?.jsonPrimitive?.booleanOrNull ?: false,
+        // 5 =「我喜欢的音乐」红心歌单（用于按红心状态实时过滤曲目）
+        specialType = this["specialType"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0,
+    )
 }

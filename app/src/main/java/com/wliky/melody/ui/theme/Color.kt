@@ -3,9 +3,12 @@ package com.wliky.melody.ui.theme
 import androidx.compose.ui.graphics.Color
 
 /**
- * 静态色板（参照 MusicStorm 的 shadcn 式令牌体系）：
- * 中性表面 + 紫蓝强调（oklch 色相 250 附近的近似值），深浅两套。
- * 不再使用 Monet 动态取色，保证深浅色模式下视觉统一。
+ * 静态回退色板（仅 Android 12 以下使用）。
+ *
+ * 全局颜色策略：Monet-only —— Android 12+ 完全跟随系统壁纸动态取色
+ * （见 [Theme.kt] 的 dynamicLight/DarkColorScheme），本文件不参与；
+ * Android 8~11 无 Monet 能力，回退到这套中性表面 + 紫蓝强调的静态色板。
+ * 播放器内部（背景/进度条/播放键）另行使用封面取色，见 CoverPaletteCache。
  */
 
 // ── 浅色 ──────────────────────────────────────────────────────

@@ -2,16 +2,26 @@ package com.wliky.melody.main
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountCircle
@@ -21,6 +31,8 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,9 +43,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.wliky.melody.artist.ArtistScreen
 import com.wliky.melody.cloud.CloudViewModel
@@ -52,7 +68,9 @@ import com.wliky.melody.podcast.PodcastScreen
 import com.wliky.melody.profile.ProfileScreen
 import com.wliky.melody.search.SearchScreen
 import com.wliky.melody.settings.LyricsSettingsScreen
+import com.wliky.melody.settings.MiniBarMode
 import com.wliky.melody.settings.SettingsScreen
+import com.wliky.melody.settings.SettingsViewModel
 import com.wliky.melody.settings.StorageScreen
 import com.wliky.melody.songlist.DailySongsViewModel
 import com.wliky.melody.songlist.NewSongsViewModel
@@ -60,8 +78,15 @@ import com.wliky.melody.songlist.SongListScreen
 import com.wliky.melody.toplist.ToplistScreen
 import com.wliky.melody.ui.components.LocalNavAnimatedVisibilityScope
 import com.wliky.melody.ui.gallery.ComponentGalleryScreen
+import com.wliky.melody.ui.theme.MelodyMotion
 import com.wliky.melody.ui.theme.Spacing
 import com.wliky.melody.ui.theme.ThemeMode
+
+/** 迷你条「滑动隐藏」模式下，收起后底部预留的上滑唤出手势区高度。 */
+private const val SWIPE_REVEAL_ZONE_DP = 28f
+
+/** 判定为「上滑」的最小位移（px），低于此值视为抖动。 */
+private const val SWIPE_REVEAL_THRESHOLD_PX = 24f
 
 /** 底部导航 Tab（双 Tab：首页 / 我的，参考网易云官方形态） */
 private enum class MainTab(
@@ -77,6 +102,27 @@ private enum class MainTab(
  * 主框架：底部双 Tab（首页 / 我的）+ 歌单详情页覆盖层。
  * 点任意歌单 → 覆盖层打开详情（隐藏底部栏），返回回到原 Tab。
  */
+/**
+ * 主框架 ↔ 播放页转场时长组（毫秒）：
+ * 入场滑动比出场略慢（封面飞越需要纵深）、淡入淡出错开形成层次。
+ * 这组值是整体调优的节奏，不映射全局 Duration 档位，只收敛命名避免魔法数。
+ */
+private object PlayerTransitionDurations {
+    /** 入场：主框架淡出（先让位） */
+    const val ExitFadeMain = 180
+
+    /** 入场：播放页上滑 + 淡入 */
+    const val EnterSlide = 360
+    const val EnterFade = 220
+
+    /** 出场：主框架淡入 */
+    const val EnterFadeMain = 220
+
+    /** 出场：播放页下滑 + 淡出（比入场利落） */
+    const val ExitSlide = 320
+    const val ExitFadePlayer = 260
+}
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun MainScreen(
@@ -102,9 +148,22 @@ fun MainScreen(
     var podcastProgram by remember { mutableStateOf<Podcast?>(null) }
     var artistTarget by remember { mutableStateOf<Pair<Long, String>?>(null) }
     var showQueue by remember { mutableStateOf(false) }
-    var showAddToPlaylist by remember { mutableStateOf(false) }
+    var addToPlaylistSongIds by remember { mutableStateOf<List<Long>>(emptyList()) }
 
     val playerQueue = homeViewModel.playerQueue
+
+    // 迷你条显示模式（固定 / 隐藏 / 滑动隐藏）
+    val settingsViewModel: SettingsViewModel = hiltViewModel()
+    val miniBarMode by settingsViewModel.miniBarMode.collectAsState()
+    var miniBarHiddenBySwipe by remember { mutableStateOf(false) }
+
+    // 宽屏判定（P10）：≥600dp（平板 / 折叠展开 / 横屏大屏）改走侧边 NavigationRail，
+    // 窄屏保持底部 NavigationBar。与 HomeScreen 网格升三列的阈值保持一致。
+    val useRail = LocalConfiguration.current.screenWidthDp >= 600
+
+    // 换歌后，被下滑收起的迷你条自动回来
+    val currentSongId = playerQueue.state.current?.id
+    LaunchedEffect(currentSongId) { miniBarHiddenBySwipe = false }
 
     // 用户点播（列表页任一点击歌曲）→ 自动打开全屏播放页
     LaunchedEffect(Unit) {
@@ -164,13 +223,11 @@ fun MainScreen(
             onDismiss = { showQueue = false },
         )
     }
-    playerQueue.state.current?.id?.let { songId ->
-        if (showAddToPlaylist) {
-            AddToPlaylistSheet(
-                songId = songId,
-                onDismiss = { showAddToPlaylist = false },
-            )
-        }
+    if (addToPlaylistSongIds.isNotEmpty()) {
+        AddToPlaylistSheet(
+            songIds = addToPlaylistSongIds,
+            onDismiss = { addToPlaylistSongIds = emptyList() },
+        )
     }
 
     val openPlaylist: (Playlist) -> Unit = { playlist ->
@@ -180,11 +237,13 @@ fun MainScreen(
     // 全屏播放页覆盖层（盖住主框架，播放不中断）
     // 歌手页（从播放页歌手名进入，盖住播放页；返回后回到播放页，播放不中断）
     artistTarget?.let { (artistId, artistName) ->
-        ArtistScreen(
-            artistId = artistId,
-            artistName = artistName,
-            onBack = { artistTarget = null },
-        )
+        OverlayEnter {
+            ArtistScreen(
+                artistId = artistId,
+                artistName = artistName,
+                onBack = { artistTarget = null },
+            )
+        }
         return
     }
 
@@ -195,108 +254,131 @@ fun MainScreen(
 
     // 组件画廊（设置页隐藏入口进入，开发期复查组件视觉）
     if (showGallery && !showNowPlaying) {
-        ComponentGalleryScreen(
-            themeMode = themeMode,
-            onSelectThemeMode = onSelectThemeMode,
-        )
+        OverlayEnter {
+            ComponentGalleryScreen(
+                themeMode = themeMode,
+                onSelectThemeMode = onSelectThemeMode,
+            )
+        }
         return
     }
 
     // 存储管理 / 歌词管理：从设置页进入，覆盖在设置页之上；
     // 渲染级联须先于设置页判定，否则设置页仍置顶时子页面永远出不来
     if (showStorage && !showNowPlaying) {
-        StorageScreen(onBack = { showStorage = false })
+        OverlayEnter {
+            StorageScreen(onBack = { showStorage = false })
+        }
         return
     }
 
     if (showLyricsSettings && !showNowPlaying) {
-        LyricsSettingsScreen(onBack = { showLyricsSettings = false })
+        OverlayEnter {
+            LyricsSettingsScreen(onBack = { showLyricsSettings = false })
+        }
         return
     }
 
     if (showSettings && !showNowPlaying) {
-        SettingsScreen(
-            themeMode = themeMode,
-            onSelectThemeMode = onSelectThemeMode,
-            onOpenGallery = { showGallery = true },
-            onOpenStorage = { showStorage = true },
-            onOpenLyricsSettings = { showLyricsSettings = true },
-            onBack = { showSettings = false },
-        )
+        OverlayEnter {
+            SettingsScreen(
+                themeMode = themeMode,
+                onSelectThemeMode = onSelectThemeMode,
+                onOpenGallery = { showGallery = true },
+                onOpenStorage = { showStorage = true },
+                onOpenLyricsSettings = { showLyricsSettings = true },
+                onBack = { showSettings = false },
+            )
+        }
         return
     }
 
     detailPlaylist?.takeIf { !showNowPlaying }?.let { playlist ->
-        PlaylistDetailScreen(
-            playlist = playlist,
-            onBack = { detailPlaylist = null },
-        )
+        OverlayEnter {
+            PlaylistDetailScreen(
+                playlist = playlist,
+                onBack = { detailPlaylist = null },
+                onCollectSongs = { songIds -> addToPlaylistSongIds = songIds },
+            )
+        }
         return
     }
 
     // 搜索页覆盖层（歌单详情会盖住搜索）
     if (showSearch && !showNowPlaying) {
-        SearchScreen(
-            onBack = { showSearch = false },
-            onOpenPlaylist = openPlaylist,
-        )
+        OverlayEnter {
+            SearchScreen(
+                onBack = { showSearch = false },
+                onOpenPlaylist = openPlaylist,
+            )
+        }
         return
     }
 
     // 个人主页（听歌排行）
     if (showProfile && !showNowPlaying) {
-        ProfileScreen(onBack = { showProfile = false })
+        OverlayEnter {
+            ProfileScreen(onBack = { showProfile = false })
+        }
         return
     }
 
     // 每日推荐（通用歌曲列表页）
     if (showDaily && !showNowPlaying) {
         val viewModel: DailySongsViewModel = hiltViewModel()
-        SongListScreen(
-            title = "每日推荐",
-            state = viewModel.uiState,
-            currentSongId = playerQueue.state.current?.id,
-            onBack = { showDaily = false },
-            onRetry = viewModel::load,
-            onPlaySongAt = viewModel::playSongAt,
-        )
+        OverlayEnter {
+            SongListScreen(
+                title = "每日推荐",
+                state = viewModel.uiState,
+                currentSongId = playerQueue.state.current?.id,
+                onBack = { showDaily = false },
+                onRetry = viewModel::load,
+                onPlaySongAt = viewModel::playSongAt,
+            )
+        }
         return
     }
 
     // 云盘音乐
     if (showCloud && !showNowPlaying) {
         val viewModel: CloudViewModel = hiltViewModel()
-        SongListScreen(
-            title = "云盘音乐",
-            state = viewModel.uiState,
-            currentSongId = playerQueue.state.current?.id,
-            onBack = { showCloud = false },
-            onRetry = viewModel::load,
-            onPlaySongAt = viewModel::playSongAt,
-        )
+        OverlayEnter {
+            SongListScreen(
+                title = "云盘音乐",
+                state = viewModel.uiState,
+                currentSongId = playerQueue.state.current?.id,
+                onBack = { showCloud = false },
+                onRetry = viewModel::load,
+                onPlaySongAt = viewModel::playSongAt,
+            )
+        }
         return
     }
 
     // 排行榜（点榜单 → 复用歌单详情覆盖层）
     if (showToplist && !showNowPlaying) {
-        ToplistScreen(
-            onBack = { showToplist = false },
-            onOpenPlaylist = openPlaylist,
-        )
+        OverlayEnter {
+            ToplistScreen(
+                onBack = { showToplist = false },
+                onOpenPlaylist = openPlaylist,
+            )
+        }
         return
     }
 
     // 新歌首发（通用歌曲列表页）
     if (showNewSongs && !showNowPlaying) {
         val viewModel: NewSongsViewModel = hiltViewModel()
-        SongListScreen(
-            title = "新歌首发",
-            state = viewModel.uiState,
-            currentSongId = playerQueue.state.current?.id,
-            onBack = { showNewSongs = false },
-            onRetry = viewModel::load,
-            onPlaySongAt = viewModel::playSongAt,
-        )
+        OverlayEnter {
+            SongListScreen(
+                title = "新歌首发",
+                state = viewModel.uiState,
+                currentSongId = playerQueue.state.current?.id,
+                onBack = { showNewSongs = false },
+                onRetry = viewModel::load,
+                onPlaySongAt = viewModel::playSongAt,
+            )
+        }
         return
     }
 
@@ -304,23 +386,27 @@ fun MainScreen(
     podcastProgram?.takeIf { !showNowPlaying }?.let { program ->
         val viewModel: PodcastProgramViewModel = hiltViewModel()
         viewModel.start(program.id)
-        SongListScreen(
-            title = program.name,
-            state = viewModel.uiState,
-            currentSongId = playerQueue.state.current?.id,
-            onBack = { podcastProgram = null },
-            onRetry = viewModel::load,
-            onPlaySongAt = viewModel::playSongAt,
-        )
+        OverlayEnter {
+            SongListScreen(
+                title = program.name,
+                state = viewModel.uiState,
+                currentSongId = playerQueue.state.current?.id,
+                onBack = { podcastProgram = null },
+                onRetry = viewModel::load,
+                onPlaySongAt = viewModel::playSongAt,
+            )
+        }
         return
     }
 
     // 播客（热门电台列表）
     if (showPodcast && !showNowPlaying) {
-        PodcastScreen(
-            onBack = { showPodcast = false },
-            onOpenRadio = { podcastProgram = it },
-        )
+        OverlayEnter {
+            PodcastScreen(
+                onBack = { showPodcast = false },
+                onOpenRadio = { podcastProgram = it },
+            )
+        }
         return
     }
 
@@ -334,11 +420,17 @@ fun MainScreen(
             label = "playerTransition",
             transitionSpec = {
                 if (targetState) {
-                    (slideInVertically(tween(360)) { it / 5 } + fadeIn(tween(220))) togetherWith
-                        fadeOut(tween(180))
+                    (
+                        slideInVertically(tween(PlayerTransitionDurations.EnterSlide)) { it / 5 } +
+                            fadeIn(tween(PlayerTransitionDurations.EnterFade))
+                        ) togetherWith
+                        fadeOut(tween(PlayerTransitionDurations.ExitFadeMain))
                 } else {
-                    fadeIn(tween(220)) togetherWith
-                        (slideOutVertically(tween(320)) { it / 5 } + fadeOut(tween(260)))
+                    fadeIn(tween(PlayerTransitionDurations.EnterFadeMain)) togetherWith
+                        (
+                            slideOutVertically(tween(PlayerTransitionDurations.ExitSlide)) { it / 5 } +
+                                fadeOut(tween(PlayerTransitionDurations.ExitFadePlayer))
+                            )
                 }
             },
         ) { nowPlaying ->
@@ -348,56 +440,105 @@ fun MainScreen(
                         onClose = { showNowPlaying = false },
                         onOpenArtist = { id, name -> artistTarget = id to name },
                         onOpenQueue = { showQueue = true },
-                        onOpenCollect = { showAddToPlaylist = true },
+                        onOpenCollect = {
+                            playerQueue.state.current?.let { song ->
+                                addToPlaylistSongIds = listOf(song.id)
+                            }
+                        },
                     )
                 } else {
                     Scaffold(
                         bottomBar = {
-                            NavigationBar {
-                                MainTab.entries.forEach { item ->
-                                    val selected = tab == item
-                                    NavigationBarItem(
-                                        selected = selected,
-                                        onClick = { tab = item },
-                                        icon = {
-                                            Icon(
-                                                imageVector = if (selected) item.iconSelected else item.icon,
-                                                contentDescription = item.label,
-                                            )
-                                        },
-                                        label = { Text(item.label) },
-                                    )
+                            // 宽屏改走侧边 NavigationRail（见下方 Row），底栏只在窄屏出现：
+                            // 底栏在 >600dp 宽度会横跨整屏，拇指区跑到边角、且白占一整条垂直空间
+                            if (!useRail) {
+                                NavigationBar {
+                                    MainTab.entries.forEach { item ->
+                                        val selected = tab == item
+                                        NavigationBarItem(
+                                            selected = selected,
+                                            onClick = { tab = item },
+                                            icon = {
+                                                Icon(
+                                                    imageVector = if (selected) item.iconSelected else item.icon,
+                                                    contentDescription = item.label,
+                                                )
+                                            },
+                                            label = { Text(item.label) },
+                                        )
+                                    }
                                 }
                             }
                         },
                     ) { padding ->
                         Box(modifier = Modifier.padding(padding)) {
-                            when (tab) {
-                                MainTab.Home -> HomeScreen(
-                                    onOpenPlaylist = openPlaylist,
-                                    onOpenSearch = { showSearch = true },
-                                    onOpenDaily = { showDaily = true },
-                                    onOpenToplist = { showToplist = true },
-                                    onOpenNewSongs = { showNewSongs = true },
-                                    onOpenPodcast = { showPodcast = true },
-                                    modifier = Modifier.fillMaxSize(),
-                                    viewModel = homeViewModel,
-                                )
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                // 宽屏（平板 / 折叠展开 / 横屏大屏）：侧边导航栏，内容区更高的一屏
+                                if (useRail) {
+                                    NavigationRail {
+                                        MainTab.entries.forEach { item ->
+                                            val selected = tab == item
+                                            NavigationRailItem(
+                                                selected = selected,
+                                                onClick = { tab = item },
+                                                icon = {
+                                                    Icon(
+                                                        imageVector = if (selected) item.iconSelected else item.icon,
+                                                        contentDescription = item.label,
+                                                    )
+                                                },
+                                                label = { Text(item.label) },
+                                            )
+                                        }
+                                    }
+                                }
+                                Box(modifier = Modifier.weight(1f)) {
+                                    // Tab 切换动效：淡入 + 轻微横移（原先 when 硬替换、毫无过渡）
+                                    AnimatedContent(
+                                        targetState = tab,
+                                        label = "mainTab",
+                                        transitionSpec = {
+                                            (
+                                                fadeIn(tween(MelodyMotion.DurationShort)) +
+                                                    slideInHorizontally(tween(MelodyMotion.DurationShort)) { it / 24 }
+                                                ) togetherWith fadeOut(tween(MelodyMotion.DurationShort))
+                                        },
+                                    ) { currentTab ->
+                                        when (currentTab) {
+                                            MainTab.Home -> HomeScreen(
+                                                onOpenPlaylist = openPlaylist,
+                                                onOpenSearch = { showSearch = true },
+                                                onOpenDaily = { showDaily = true },
+                                                onOpenToplist = { showToplist = true },
+                                                onOpenNewSongs = { showNewSongs = true },
+                                                onOpenPodcast = { showPodcast = true },
+                                                modifier = Modifier.fillMaxSize(),
+                                                viewModel = homeViewModel,
+                                            )
 
-                                MainTab.Mine -> MineScreen(
-                                    onLogout = {
-                                        playerQueue.stop()
-                                        onLogout()
-                                    },
-                                    onOpenPlaylist = openPlaylist,
-                                    onOpenProfile = { showProfile = true },
-                                    onOpenCloud = { showCloud = true },
-                                    onOpenSettings = { showSettings = true },
-                                )
+                                            MainTab.Mine -> MineScreen(
+                                                onLogout = {
+                                                    playerQueue.stop()
+                                                    onLogout()
+                                                },
+                                                onOpenPlaylist = openPlaylist,
+                                                onOpenProfile = { showProfile = true },
+                                                onOpenCloud = { showCloud = true },
+                                                onOpenSettings = { showSettings = true },
+                                            )
+                                        }
+                                    }
+                                }
                             }
 
-                            // 全局悬浮迷你条：盖在 Tab 内容上、底部导航栏上方；有曲目才出现
-                            if (playerQueue.state.current != null) {
+                            // 全局悬浮迷你条：盖在 Tab 内容上、底部导航栏上方；
+                            // 有曲目且模式允许（固定 / 滑动隐藏且未被下滑收起）才出现
+                            val miniBarVisible = playerQueue.state.current != null && when (miniBarMode) {
+                                MiniBarMode.FIXED -> true
+                                MiniBarMode.HIDDEN -> false
+                                MiniBarMode.SWIPE_HIDE -> !miniBarHiddenBySwipe
+                            }
+                            if (miniBarVisible) {
                                 MiniPlayerBar(
                                     state = playerQueue.state,
                                     onTogglePlayPause = playerQueue::togglePlayPause,
@@ -407,6 +548,39 @@ fun MainScreen(
                                     modifier = Modifier
                                         .align(Alignment.BottomCenter)
                                         .padding(horizontal = Spacing.screen, vertical = Spacing.md),
+                                    // 下滑 = 收起；收起后靠底部手势区上滑唤出
+                                    onSwipeHide = if (miniBarMode == MiniBarMode.SWIPE_HIDE) {
+                                        { miniBarHiddenBySwipe = true }
+                                    } else {
+                                        null
+                                    },
+                                )
+                            } else if (
+                                miniBarMode == MiniBarMode.SWIPE_HIDE &&
+                                playerQueue.state.current != null
+                            ) {
+                                // 已收起：底部留一条透明手势区，上滑唤出迷你条
+                                Spacer(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .fillMaxWidth()
+                                        .height(SWIPE_REVEAL_ZONE_DP.dp)
+                                        .pointerInput(Unit) {
+                                            var acc = 0f
+                                            detectVerticalDragGestures(
+                                                onDragStart = { acc = 0f },
+                                                onDragEnd = { acc = 0f },
+                                                onVerticalDrag = { change, dragAmount ->
+                                                    acc += dragAmount
+                                                    change.consume()
+                                                    // 向上滑 = 位移为负，累计超过阈值即唤出
+                                                    if (acc < -SWIPE_REVEAL_THRESHOLD_PX) {
+                                                        acc = 0f
+                                                        miniBarHiddenBySwipe = false
+                                                    }
+                                                },
+                                            )
+                                        },
                                 )
                             }
                         }
@@ -415,6 +589,29 @@ fun MainScreen(
             }
         }
     }
+}
+
+/**
+ * 二级页统一进入动画（P8）：从右侧轻滑入 + 淡入，与「进栈」体感一致。
+ *
+ * 原先所有覆盖层都是瞬切，进来毫无过渡；统一包一层后，搜索 / 歌单详情 / 设置 / 每日推荐
+ * 等二级页共享同一条进入动线。退出保持瞬间：BackHandler 立即响应、不留动画尾巴。
+ *
+ * 用 [MutableTransitionState] 先 false 再立刻置 true —— 若直接 visible = true，
+ * AnimatedVisibility 首次组合不会播放 enter 动画。
+ */
+@Composable
+private fun OverlayEnter(
+    content: @Composable AnimatedVisibilityScope.() -> Unit,
+) {
+    val visibleState = remember { MutableTransitionState(false).apply { targetState = true } }
+    AnimatedVisibility(
+        visibleState = visibleState,
+        enter = slideInHorizontally(tween(MelodyMotion.DurationShort)) { it / 12 } +
+            fadeIn(tween(MelodyMotion.DurationShort)),
+        exit = ExitTransition.None,
+        content = content,
+    )
 }
 
 /** 覆盖层类型：决定返回键关闭哪一层。 */

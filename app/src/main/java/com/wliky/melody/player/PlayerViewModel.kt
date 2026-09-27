@@ -9,7 +9,6 @@ import androidx.lifecycle.viewModelScope
 import com.wliky.melody.data.error.AppResult
 import com.wliky.melody.data.model.LyricLine
 import com.wliky.melody.data.repo.LyricRepository
-import com.wliky.melody.data.repo.SongRepository
 import com.wliky.melody.settings.SettingsPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -28,13 +27,24 @@ import javax.inject.Inject
 class PlayerViewModel @Inject constructor(
     val playerQueue: PlayerQueue,
     private val lyricRepository: LyricRepository,
-    private val songRepository: SongRepository,
     private val settingsPreferences: SettingsPreferences,
 ) : ViewModel() {
 
-    /** 歌词字号（sp）：设置页「歌词管理」滑条实时写入，播放页歌词页实时生效。 */
+    /** 歌词字号（sp）：设置页「歌词管理」与播放页歌词面板均可实时调节（12–24）。 */
     val lyricFontSize: StateFlow<Float> = settingsPreferences.lyricFontSize
         .stateIn(viewModelScope, SharingStarted.Eagerly, 20f)
+
+    /** 播放倍速（0.5x–3.0x）：播放页倍速面板实时调节。 */
+    val playbackSpeed: StateFlow<Float> = settingsPreferences.playbackSpeed
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 1f)
+
+    /** SuperLyric 系统级歌词广播开关。 */
+    val superLyricEnabled: StateFlow<Boolean> = settingsPreferences.superLyricEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** 车载蓝牙歌词开关。 */
+    val carBluetoothLyricsEnabled: StateFlow<Boolean> = settingsPreferences.carBluetoothLyricsEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     var lyricLines by mutableStateOf<List<LyricLine>>(emptyList())
         private set
@@ -43,9 +53,11 @@ class PlayerViewModel @Inject constructor(
     var lyricLoading by mutableStateOf(false)
         private set
 
-    /** 已红心的歌曲 id（乐观更新，接口失败会回滚） */
-    var likedSongIds by mutableStateOf<Set<Long>>(emptySet())
-        private set
+    /** 已红心的歌曲 id：委托全局 [PlayerQueue]（likelist + 乐观更新，跨页面共享） */
+    val likedSongIds: Set<Long> get() = playerQueue.likedSongIds
+
+    /** 红心操作失败提示：委托 [PlayerQueue]。 */
+    val likeError: String? get() = playerQueue.likeError
 
     private var lyricJob: Job? = null
 
@@ -65,20 +77,15 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    /** 红心 / 取消红心：先乐观更新，接口失败（多为未登录）则回滚。 */
-    fun toggleLike(songId: Long) {
-        val liked = likedSongIds.contains(songId)
-        val next = !liked
-        android.util.Log.d("LIKE", "toggle id=$songId next=$next")
-        likedSongIds = if (next) likedSongIds + songId else likedSongIds - songId
-        viewModelScope.launch {
-            val result = songRepository.likeSong(songId, next)
-            if (result is AppResult.Failure) {
-                val err = result.error
-                android.util.Log.d("LIKE", "failed: code=${(err as? com.wliky.melody.data.error.AppError.Api)?.code} msg=${err.message}")
-                likedSongIds = if (next) likedSongIds - songId else likedSongIds + songId
-            }
-        }
+    /** 红心 / 取消红心：委托 [PlayerQueue.toggleLike]（全局状态，歌单页实时联动）。 */
+    fun toggleLike(songId: Long) = playerQueue.toggleLike(songId)
+
+    /** UI 消费完红心失败提示后清除。 */
+    fun clearLikeError() = playerQueue.clearLikeError()
+
+    /** 调节倍速（0.5x–3.0x），立即生效并持久化。 */
+    fun setPlaybackSpeed(speed: Float) {
+        viewModelScope.launch { settingsPreferences.setPlaybackSpeed(speed) }
     }
 
     private fun loadLyric(songId: Long) {

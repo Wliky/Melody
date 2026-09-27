@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -63,7 +62,9 @@ internal fun AmllLyricsPage(
         }
     }
 
-    Box(modifier = modifier.fillMaxWidth()) {
+    // fillMaxSize：仅 fillMaxWidth 时高度不受 Pager 约束，
+    // LazyColumn 的 fillMaxSize 会撑到进度条/控制区下方（歌词被遮挡）
+    Box(modifier = modifier.fillMaxSize()) {
         when {
             loading -> Text(
                 text = "歌词加载中…",
@@ -82,8 +83,9 @@ internal fun AmllLyricsPage(
             else -> LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                // 底部留白更大：保证末行（含翻译行）完整进入焦点区，不贴边裁半
-                contentPadding = PaddingValues(top = 120.dp, bottom = 160.dp),
+                // 信息行在歌词页已从组合中移除（不再占位），上下留白相应收紧，
+                // 歌词获得完整显示空间；底部仍略大于顶部（末行进焦点区不贴边裁半）
+                contentPadding = PaddingValues(top = 48.dp, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(Spacing.lg),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -132,7 +134,7 @@ private fun LyricRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(MaterialTheme.shapes.small)
             .clickable(onClick = onClick)
             .padding(horizontal = Spacing.md, vertical = Spacing.xs),
         horizontalAlignment = Alignment.CenterHorizontally,

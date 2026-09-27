@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Headphones
@@ -50,15 +49,26 @@ import com.wliky.melody.data.model.Playlist
 import com.wliky.melody.data.model.Toplist
 import com.wliky.melody.ui.components.CoverImage
 import com.wliky.melody.ui.components.EmptyState
+import com.wliky.melody.ui.components.SectionHeader
 import com.wliky.melody.ui.components.MelodyButton
 import com.wliky.melody.ui.components.SkeletonBox
+import com.wliky.melody.ui.components.pressableScale
+import com.wliky.melody.ui.theme.MelodyMotion
+import com.wliky.melody.ui.theme.MelodySize
 import com.wliky.melody.ui.theme.Spacing
+import com.wliky.melody.ui.util.formatCount
 
 /** 首页横滑区每区块预览的最大卡片数。 */
 private const val STRIP_PREVIEW_COUNT = 10
 
-/** 首页所有入口卡片的统一圆角（封面 / 横幅一致）。 */
-private val CARD_CORNER = 16.dp
+/**
+ * 悬浮迷你播放条的独占高度：首页是 Tab 容器的 overlay 内容，
+ * 列表底部必须留出这块空间，否则最后一项（推荐歌单末行）会被压住不可点。
+ */
+private val MINI_BAR_AVOIDANCE = 72.dp
+
+/** 推荐歌单网格：宽屏（≥600dp）升到三列，窄屏保持两列。 */
+private val GRID_WIDE_THRESHOLD = 600.dp
 
 /**
  * 首页（主框架 Tab 1）：大标题问候 + 标题下搜索框 +
@@ -147,20 +157,20 @@ private fun LoadingSection() {
             modifier = Modifier
                 .fillMaxWidth()
                 .height(130.dp)
-                .clip(RoundedCornerShape(16.dp)),
+                .clip(MaterialTheme.shapes.medium),
         )
         SkeletonBox(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(180.dp)
-                .clip(RoundedCornerShape(16.dp)),
+                .clip(MaterialTheme.shapes.medium),
         )
         repeat(3) {
             SkeletonBox(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(64.dp)
-                    .clip(RoundedCornerShape(12.dp)),
+                    .clip(MaterialTheme.shapes.small),
             )
         }
     }
@@ -194,17 +204,30 @@ private fun HomeContent(
     onPlayNewSong: (Int) -> Unit,
 ) {
     // 派生数据 remember：chunked / take 只在数据变化时重算，不再每次重组重新分配新列表
-    val recommendedRows = remember(state.recommended) { state.recommended.chunked(2) }
     val toplistPreview = remember(state.toplists) { state.toplists.take(STRIP_PREVIEW_COUNT) }
 
     // 卡片宽度全局只算一次：原先两个 item 内各嵌 BoxWithConstraints（subcomposition），
     // 滚动到该 item 反复走子组合测量，拖慢滚动帧；现整体只测一次
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        // 列表内容宽 = 总宽 - 左右 contentPadding；两列网格去掉列间距后均分
-        val cardWidth = (maxWidth - Spacing.screen * 2 - Spacing.md) / 2
+        // 宽屏三列、窄屏两列；列数变化后重算统一的卡片宽度（与推荐歌单网格卡片同尺寸）
+        val gridColumns = if (maxWidth >= GRID_WIDE_THRESHOLD) 3 else 2
+        // 卡片宽 = （可用宽 - 列间距总和）/ 列数。横滑行与网格共用该宽度，保证整页横向对齐
+        val cardWidth =
+            (maxWidth - Spacing.screen * 2 - Spacing.md * (gridColumns - 1)) / gridColumns
+        // 行 列的推荐歌单条目按当前列数重新分组
+        val recommendedRowsByColumns =
+            remember(state.recommended, gridColumns) {
+                state.recommended.chunked(gridColumns)
+            }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = Spacing.screen, vertical = Spacing.md),
+            contentPadding = PaddingValues(
+                start = Spacing.screen,
+                end = Spacing.screen,
+                top = Spacing.md,
+                // 底部留白：避免最后几项被悬浮迷你播放条遮住
+                bottom = Spacing.md + MINI_BAR_AVOIDANCE,
+            ),
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
             // 第一行合并入口（无分区标题）：每日推荐 / 新歌首发 / 播客。
@@ -281,7 +304,7 @@ private fun HomeContent(
             }
 
             if (state.banners.isNotEmpty()) {
-                item { SectionTitle("精选横幅") }
+                item { SectionHeader("精选横幅") }
                 item {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
                         items(state.banners, key = { "banner-${it.id}-${it.imageUrl}" }) { banner ->
@@ -291,10 +314,10 @@ private fun HomeContent(
                 }
             }
             if (state.recommended.isNotEmpty()) {
-                item { SectionTitle("推荐歌单") }
-                // 双列网格：一行两张大封面卡片
+                item { SectionHeader("推荐歌单") }
+                // 双列（宽屏三列）网格：一行多张大封面卡片，行内卡片等分，宽度与横滑区一致
                 items(
-                    recommendedRows,
+                    recommendedRowsByColumns,
                     key = { row -> row.joinToString("-") { it.id.toString() } },
                 ) { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
@@ -315,47 +338,6 @@ private fun HomeContent(
             item { Spacer(modifier = Modifier.height(Spacing.xl)) }
         }
     }
-}
-
-/** 可点击的分区标题：右侧「更多」箭头进完整页。 */
-@Composable
-private fun SectionHeader(title: String, onMore: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onMore)
-            .padding(top = Spacing.sm, bottom = Spacing.xs),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(modifier = Modifier.weight(1f))
-        Text(
-            text = "更多",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Icon(
-            imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-            contentDescription = "查看全部$title",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(16.dp),
-        )
-    }
-}
-
-@Composable
-private fun SectionTitle(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier.padding(top = Spacing.sm),
-    )
 }
 
 /** 横滑封面流通用容器。 */
@@ -411,14 +393,16 @@ private fun ToplistMediaCard(
 /** 标题下搜索框（点击跳转搜索页的占位输入框，MusicStorm 风格）。 */
 @Composable
 private fun SearchBarHint(onClick: () -> Unit) {
+    // 搜索框与卡片同圆角档（shapes.medium），14dp 是旧值，已统一到 token
+    val barShape = MaterialTheme.shapes.medium
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
-        shape = RoundedCornerShape(14.dp),
+        shape = barShape,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = Spacing.screen, vertical = Spacing.md)
             .height(46.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(barShape)
             .clickable(onClick = onClick),
     ) {
         Row(
@@ -429,7 +413,7 @@ private fun SearchBarHint(onClick: () -> Unit) {
                 imageVector = Icons.Rounded.Search,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(MelodySize.iconS),
             )
             Spacer(modifier = Modifier.width(Spacing.sm))
             Text(
@@ -456,7 +440,7 @@ private fun BannerCard(banner: Banner) {
         modifier = Modifier
             .width(300.dp)
             .height(130.dp),
-        shape = RoundedCornerShape(CARD_CORNER),
+        shape = MaterialTheme.shapes.medium,
     )
 }
 
@@ -501,24 +485,31 @@ private fun CoverCard(
 ) {
     // 莫奈取色（Android 12+ 跟随系统壁纸；以下回退静态主色）
     val accent = MaterialTheme.colorScheme.primary
-    Column(modifier = modifier.clickable(onClick = onClick)) {
+    // 卡片圆角取 shapes.medium token（与原硬编码一致，但跟随主题，不再脱离 token 体系）
+    val cardShape = MaterialTheme.shapes.medium
+    Column(
+        modifier = modifier
+            // 按下缩小的点击反馈（配合 ripple），让卡片可点感更强
+            .pressableScale(pressedScale = MelodyMotion.PressedScaleLarge)
+            .clickable(onClick = onClick),
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                .clip(RoundedCornerShape(CARD_CORNER)),
+                .clip(cardShape),
         ) {
             CoverImage(
                 url = coverUrl,
                 contentDescription = title,
                 modifier = Modifier.matchParentSize(),
-                shape = RoundedCornerShape(CARD_CORNER),
+                shape = cardShape,
             )
             // 右上角角标：半透明底 + 线性图标 + 小字号
             badge?.let { text ->
                 Surface(
                     color = Color.Black.copy(alpha = 0.45f),
-                    shape = RoundedCornerShape(50),
+                    shape = CircleShape,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(8.dp),
@@ -549,7 +540,7 @@ private fun CoverCard(
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(8.dp)
+                        .padding(Spacing.sm)
                         .size(34.dp)
                         .clip(CircleShape)
                         .background(Color.Black.copy(alpha = 0.45f))
@@ -560,7 +551,7 @@ private fun CoverCard(
                         imageVector = Icons.Outlined.PlayArrow,
                         contentDescription = "播放$title",
                         tint = Color.White,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(MelodySize.iconS),
                     )
                 }
             }
@@ -575,17 +566,5 @@ private fun CoverCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-    }
-}
-
-private fun formatCount(count: Long): String {
-    val wan = count / 10_000.0
-    val yi = count / 100_000_000.0
-    return when {
-        count >= 100_000_000 ->
-            if (yi % 1.0 == 0.0) "${yi.toInt()}亿" else "%.1f亿".format(yi)
-        count >= 10_000 ->
-            if (wan % 1.0 == 0.0) "${wan.toInt()}万" else "%.1f万".format(wan)
-        else -> count.toString()
     }
 }

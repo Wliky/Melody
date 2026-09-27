@@ -17,6 +17,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // SuperLyricApi（外部歌词广播协议）发布在 JitPack
+        maven { url = uri("https://jitpack.io") }
     }
 }
 

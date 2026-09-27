@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.CloudQueue
@@ -38,8 +37,11 @@ import com.wliky.melody.data.model.Playlist
 import com.wliky.melody.ui.components.CoverImage
 import com.wliky.melody.ui.components.EmptyState
 import com.wliky.melody.ui.components.MelodyButton
+import com.wliky.melody.ui.components.PlaylistRow
 import com.wliky.melody.ui.components.SkeletonBox
+import com.wliky.melody.ui.theme.MelodySize
 import com.wliky.melody.ui.theme.Spacing
+import com.wliky.melody.ui.util.formatCount
 
 /**
  * 「我的」页：账号信息 + 我的歌单（网易云官方「我的」Tab 的最小形态）。
@@ -106,21 +108,21 @@ private fun MineLoading() {
     ) {
         SkeletonBox(
             modifier = Modifier
-                .size(72.dp)
+                .size(MelodySize.coverL)
                 .clip(CircleShape),
         )
         SkeletonBox(
             modifier = Modifier
                 .fillMaxWidth(0.5f)
                 .height(24.dp)
-                .clip(RoundedCornerShape(8.dp)),
+                .clip(MaterialTheme.shapes.extraSmall),
         )
         repeat(5) {
             SkeletonBox(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(64.dp)
-                    .clip(RoundedCornerShape(12.dp)),
+                    .clip(MaterialTheme.shapes.small),
             )
         }
     }
@@ -173,7 +175,12 @@ private fun MineContent(
             )
         }
         items(state.playlists, key = { "mine-${it.id}" }) { playlist ->
-            PlaylistRow(playlist = playlist, onClick = { onOpenPlaylist(playlist) })
+            PlaylistRow(
+                title = playlist.name,
+                subtitle = "${playlist.trackCount} 首 · 播放 ${formatCount(playlist.playCount)} 次",
+                coverUrl = playlist.coverUrl,
+                onClick = { onOpenPlaylist(playlist) },
+            )
         }
         item {
             Spacer(modifier = Modifier.height(Spacing.xl))
@@ -196,7 +203,7 @@ private fun UserProfile(
             url = state.user?.avatarUrl,
             contentDescription = state.user?.nickname,
             modifier = Modifier
-                .size(72.dp)
+                .size(MelodySize.coverL)
                 .clip(CircleShape)
                 .clickable(onClick = onOpenProfile),
         )
@@ -261,7 +268,7 @@ private fun MusicEntryCard(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shape = RoundedCornerShape(16.dp),
+        shape = MaterialTheme.shapes.medium,
         modifier = modifier.clickable(onClick = onClick),
     ) {
         Column(
@@ -274,7 +281,7 @@ private fun MusicEntryCard(
                 imageVector = icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp),
+                modifier = Modifier.size(MelodySize.iconL),
             )
             Text(
                 text = title,
@@ -287,52 +294,5 @@ private fun MusicEntryCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-    }
-}
-
-@Composable
-private fun PlaylistRow(playlist: Playlist, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = Spacing.xs),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        CoverImage(
-            url = playlist.coverUrl,
-            contentDescription = playlist.name,
-            modifier = Modifier.size(56.dp),
-            shape = RoundedCornerShape(12.dp),
-        )
-        Spacer(modifier = Modifier.width(Spacing.md))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = playlist.name,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = "${playlist.trackCount} 首 · 播放 ${formatCount(playlist.playCount)} 次",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-private fun formatCount(count: Long): String {
-    val wan = count / 10_000.0
-    val yi = count / 100_000_000.0
-    return when {
-        count >= 100_000_000 ->
-            if (yi % 1.0 == 0.0) "${yi.toInt()}亿" else "%.1f亿".format(yi)
-        count >= 10_000 ->
-            if (wan % 1.0 == 0.0) "${wan.toInt()}万" else "%.1f万".format(wan)
-        else -> count.toString()
     }
 }

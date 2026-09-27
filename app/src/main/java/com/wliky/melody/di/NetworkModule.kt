@@ -21,5 +21,5 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideNeteaseClient(cookieStore: CookieStore): NeteaseClient =
-        NeteaseClient(NeteaseClient.defaultOkHttp(cookieStore))
+        NeteaseClient(NeteaseClient.defaultOkHttp(cookieStore), cookieStore)
 }

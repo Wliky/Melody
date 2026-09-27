@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -37,6 +38,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import coil3.imageLoader
 import com.wliky.melody.data.cache.RepoCache
+import com.wliky.melody.ui.theme.MelodySize
+import com.wliky.melody.ui.theme.Spacing
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -133,14 +136,14 @@ fun StorageScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(horizontal = Spacing.md),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
             // 总占用卡片
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(Spacing.md),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Storage, contentDescription = null)
@@ -148,11 +151,11 @@ fun StorageScreen(
                         Text(
                             text = "应用占用",
                             style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(start = 8.dp),
+                            modifier = Modifier.padding(start = Spacing.sm),
                         )
                     }
                     if (state.loading) {
-                        CircularProgressIndicator(modifier = Modifier.height(24.dp))
+                        CircularProgressIndicator(modifier = Modifier.size(MelodySize.iconM))
                     } else {
                         Text(
                             text = "共 ${formatBytes(state.totalBytes)}",
@@ -176,8 +179,8 @@ fun StorageScreen(
             // 明细卡片
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(Spacing.md),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
                 ) {
                     Text("缓存（封面图、网络缓存）", style = MaterialTheme.typography.bodyMedium)
                     Text(

@@ -37,6 +37,10 @@ zxing = "3.5.3"
 hiltNavigationCompose = "1.3.0"
 # Media3：ExoPlayer + MediaSession（后台播放 / 通知栏）
 media3 = "1.11.1"
+# SuperLyricApi：外部歌词广播协议（Xposed 模块 / 系统级歌词接收端）
+# v3.5 代码已合入 master 但作者未打 tag，JitPack 上以 commit hash 锁定
+# （Release v3.5: b7ad6e48，若官方补发 3.5 tag 可改回版本号）
+superLyricApi = "b7ad6e48360cb5e054b523e9f9dc5727d99755af"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -74,6 +78,7 @@ androidx-hilt-navigation-compose = { module = "androidx.hilt:hilt-navigation-com
 media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
 media3-session = { module = "androidx.media3:media3-session", version.ref = "media3" }
 media3-common = { module = "androidx.media3:media3-common", version.ref = "media3" }
+superlyric-api = { module = "com.github.HChenX:SuperLyricApi", version.ref = "superLyricApi" }
 androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
 
 hilt-android = { module = "com.google.dagger:hilt-android", version.ref = "hilt" }

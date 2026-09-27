@@ -6,10 +6,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import com.wliky.melody.data.error.AppResult
 import com.wliky.melody.data.model.Song
+import com.wliky.melody.data.repo.AuthRepository
+import com.wliky.melody.data.repo.SessionEvent
 import com.wliky.melody.data.repo.SongRepository
+import com.wliky.melody.settings.SettingsPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -43,8 +47,11 @@ enum class RepeatMode { ALL, ONE, OFF }
 @Singleton
 class PlayerQueue @Inject constructor(
     private val songRepository: SongRepository,
+    private val authRepository: AuthRepository,
     private val playerConnection: PlayerConnection,
     private val playbackPrefs: PlaybackPreferences,
+    private val settingsPreferences: SettingsPreferences,
+    private val externalLyricsPublisher: ExternalLyricsPublisher,
 ) {
 
     data class QueueState(
@@ -72,10 +79,24 @@ class PlayerQueue @Inject constructor(
     /** 用户点播事件（[setQueue] 触发）：UI 订阅后可自动打开全屏播放页。 */
     val userPlayEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
+    /**
+     * 全局红心歌曲 id 集（来自服务端 likelist + 乐观更新）。
+     * 放在单例队列里供所有页面共享：播放页红心按钮、
+     * 「我喜欢的音乐」歌单实时过滤都读它。
+     */
+    var likedSongIds by mutableStateOf<Set<Long>>(emptySet())
+        private set
+
+    /** 红心操作失败提示（UI 消费后调 [clearLikeError] 清除）。 */
+    var likeError by mutableStateOf<String?>(null)
+        private set
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var playJob: Job? = null
     /** 上次落盘时间，用于进度写入节流 */
     private var lastPersistAt = 0L
+    /** 当前倍速（0.5x–3x），设置页实时调节、起播时保持 */
+    private var speed = 1f
 
     init {
         // 恢复上次会话：只还原状态（迷你条可见、显示进度），不自动起播
@@ -134,6 +155,56 @@ class PlayerQueue @Inject constructor(
                 delay(500)
             }
         }
+        // 倍速：设置页写入即时生效，起播时兜底恢复
+        scope.launch {
+            settingsPreferences.playbackSpeed.collect {
+                speed = it
+                applySpeed()
+            }
+        }
+        // 外部歌词：SuperLyric 系统广播 + 车载蓝牙歌词（AVRCP 元数据）
+        externalLyricsPublisher.start(this@PlayerQueue, scope)
+
+        // 红心状态：启动拉一次服务端 likelist（未登录静默跳过），登录/退出实时同步
+        scope.launch { loadLikeList() }
+        scope.launch {
+            authRepository.sessionEvents.collect { event ->
+                when (event) {
+                    SessionEvent.LoggedIn -> loadLikeList()
+                    SessionEvent.LoggedOut -> likedSongIds = emptySet()
+                }
+            }
+        }
+    }
+
+    /** 拉取红心 id 列表：未登录直接跳过，失败保持现状。 */
+    private suspend fun loadLikeList() {
+        val user = (authRepository.currentUser() as? AppResult.Success)?.data ?: return
+        when (val r = songRepository.getLikeList(user.id)) {
+            is AppResult.Success -> likedSongIds = r.data
+            is AppResult.Failure -> Unit
+        }
+    }
+
+    /** 红心 / 取消红心：先乐观更新，接口失败（多为未登录）则回滚并提示。 */
+    fun toggleLike(songId: Long) {
+        val liked = likedSongIds.contains(songId)
+        val next = !liked
+        likedSongIds = if (next) likedSongIds + songId else likedSongIds - songId
+        scope.launch {
+            when (val result = songRepository.likeSong(songId, next)) {
+                is AppResult.Success -> likeError = null
+                is AppResult.Failure -> {
+                    likedSongIds = if (next) likedSongIds - songId else likedSongIds + songId
+                    likeError = "红心失败：${result.error.message}"
+                }
+            }
+        }
+    }
+
+    /** UI 消费完红心失败提示后清除。 */
+    fun clearLikeError() {
+        likeError = null
     }
 
     /** 设置新队列并从 [startIndex] 开始播放。 */
@@ -246,19 +317,26 @@ class PlayerQueue @Inject constructor(
     }
 
     /**
-     * 通知栏歌词：把系统媒体控件通知的标题替换为 [line]（传 null 恢复歌名）。
-     * 通过 replaceMediaItem 更新当前曲目元数据，通知随 MediaSession 自动刷新，
-     * 不额外发独立通知；恢复态（播放器为空）下无操作。
+     * 车载蓝牙歌词：把当前歌词行写入媒体元数据歌手字段（车机经 AVRCP 显示
+     * 「歌名 - 歌词行」），传 [line] 为空时恢复歌手名。通知栏标题不受影响。
      */
-    fun setNotificationLyric(line: String?) {
+    fun setCarBluetoothLyric(line: String?) {
         val controller = playerConnection.controller.value ?: return
         val index = controller.currentMediaItemIndex
         if (index < 0 || index >= controller.mediaItemCount) return
         val song = state.current ?: return
         val old = runCatching { controller.getMediaItemAt(index) }.getOrNull() ?: return
-        val title = line?.takeIf { it.isNotBlank() } ?: song.name
-        val metadata = old.mediaMetadata.buildUpon().setTitle(title).build()
+        val artist = line?.takeIf { it.isNotBlank() } ?: song.subtitle
+        val metadata = old.mediaMetadata.buildUpon().setArtist(artist).build()
         controller.replaceMediaItem(index, old.buildUpon().setMediaMetadata(metadata).build())
+    }
+
+    /** 立即应用倍速（控制器未连接时由起播流程兜底）。 */
+    private fun applySpeed() {
+        val controller = playerConnection.controller.value ?: return
+        if (controller.playbackParameters.speed != speed) {
+            controller.playbackParameters = PlaybackParameters(speed)
+        }
     }
 
     /** 进度条拖动：跳到指定位置。 */
@@ -359,6 +437,7 @@ class PlayerQueue @Inject constructor(
                         }
                         controller.prepare()
                         controller.play()
+                        applySpeed()
                         state = state.copy(
                             index = i,
                             current = song,

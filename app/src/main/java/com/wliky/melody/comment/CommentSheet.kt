@@ -38,12 +38,13 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.wliky.melody.data.model.Comment
 import com.wliky.melody.data.repo.CommentSort
 import com.wliky.melody.ui.components.CoverImage
+import com.wliky.melody.ui.theme.MelodySize
 import com.wliky.melody.ui.theme.Spacing
 
 /**
  * 评论底栏（当前播放歌曲 / 歌单），只读浏览。
  *
- * 高 80% 屏幕：排序页签（最热/最新）+ 评论列表 + 加载更多。
+ * 高 2/3 屏幕：排序页签（最热/最新）+ 评论列表 + 加载更多。
  * 点赞/回复/发表等写操作因服务端设备风控暂缓，见 [com.wliky.melody.data.repo.CommentRepository]。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -66,9 +67,10 @@ fun CommentSheet(
     }
 
     // 面板高度按屏幕比例固定，否则 ModalBottomSheet 会按内容撑开，
-    // weight(1f) 分不到剩余空间导致列表无法滚动
+    // weight(1f) 分不到剩余空间导致列表无法滚动。
+    // 固定 2/3 屏高：展开后不会延伸出屏幕顶部
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
-    val panelHeight = screenHeight * 0.9f
+    val panelHeight = screenHeight * 2f / 3f
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -195,7 +197,7 @@ fun CommentListBody(
                         ) {
                             if (state.loadingMore) {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp),
+                                    modifier = Modifier.size(MelodySize.iconM),
                                     strokeWidth = 2.dp,
                                 )
                             } else {
@@ -220,7 +222,7 @@ private fun CommentItem(comment: Comment) {
             url = comment.userAvatarUrl,
             contentDescription = comment.userNickname,
             modifier = Modifier
-                .size(36.dp)
+                .size(MelodySize.coverXs)
                 .clip(CircleShape),
         )
         Spacer(modifier = Modifier.width(Spacing.md))

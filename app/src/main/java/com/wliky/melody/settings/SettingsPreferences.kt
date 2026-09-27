@@ -20,31 +20,32 @@ private val Context.settingsDataStore by preferencesDataStore(name = "settings")
  */
 enum class AudioQuality(val label: String, val apiLevel: String) {
     STANDARD("标准", "standard"),
-    HIGHER("高品", "higher"),
-    LOSSLESS("无损", "lossless"),
+    EXHIGH("极高 (HQ)", "exhigh"),
+    LOSSLESS("无损 (SQ)", "lossless"),
     HIRES("Hi-Res", "hires"),
 }
 
 /**
- * 设置项持久化（通知栏歌词、播放音质、歌词字号等）。主题仍走 [com.wliky.melody.ui.theme.ThemePreferences]。
+ * 迷你条显示模式：固定显示 / 完全隐藏 / 下滑隐藏（换歌自动回来）。
+ */
+enum class MiniBarMode(val label: String) {
+    FIXED("固定"),
+    HIDDEN("隐藏"),
+    SWIPE_HIDE("滑动隐藏"),
+}
+
+/**
+ * 设置项持久化（播放音质、歌词字号、倍速、外部歌词等）。主题仍走 [com.wliky.melody.ui.theme.ThemePreferences]。
  */
 @Singleton
 class SettingsPreferences @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
 
-    /** 通知栏歌词开关。 */
-    val notificationLyricsEnabled: Flow<Boolean> =
-        context.settingsDataStore.data.map { prefs -> prefs[KEY_NOTIFICATION_LYRICS] ?: false }
-
-    suspend fun setNotificationLyricsEnabled(enabled: Boolean) {
-        context.settingsDataStore.edit { prefs -> prefs[KEY_NOTIFICATION_LYRICS] = enabled }
-    }
-
-    /** 播放音质，默认高品。 */
+    /** 播放音质，默认极高 (HQ)。 */
     val audioQuality: Flow<AudioQuality> =
         context.settingsDataStore.data.map { prefs ->
-            AudioQuality.entries.firstOrNull { it.name == prefs[KEY_AUDIO_QUALITY] } ?: AudioQuality.HIGHER
+            AudioQuality.entries.firstOrNull { it.name == prefs[KEY_AUDIO_QUALITY] } ?: AudioQuality.EXHIGH
         }
 
     suspend fun setAudioQuality(quality: AudioQuality) {
@@ -64,13 +65,58 @@ class SettingsPreferences @Inject constructor(
         }
     }
 
+    /** 播放倍速，范围 [SPEED_MIN, SPEED_MAX]，默认 1x。 */
+    val playbackSpeed: Flow<Float> =
+        context.settingsDataStore.data.map { prefs ->
+            (prefs[KEY_PLAYBACK_SPEED] ?: SPEED_DEFAULT).coerceIn(SPEED_MIN, SPEED_MAX)
+        }
+
+    suspend fun setPlaybackSpeed(speed: Float) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[KEY_PLAYBACK_SPEED] = speed.coerceIn(SPEED_MIN, SPEED_MAX)
+        }
+    }
+
+    /** 车载蓝牙歌词：把当前歌词行写入媒体元数据，经 AVRCP 发送到车机。 */
+    val carBluetoothLyricsEnabled: Flow<Boolean> =
+        context.settingsDataStore.data.map { prefs -> prefs[KEY_CAR_BT_LYRICS] ?: false }
+
+    suspend fun setCarBluetoothLyricsEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { prefs -> prefs[KEY_CAR_BT_LYRICS] = enabled }
+    }
+
+    /** SuperLyric：向系统级歌词接收端（Xposed 模块等）广播实时歌词。 */
+    val superLyricEnabled: Flow<Boolean> =
+        context.settingsDataStore.data.map { prefs -> prefs[KEY_SUPER_LYRIC] ?: false }
+
+    suspend fun setSuperLyricEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { prefs -> prefs[KEY_SUPER_LYRIC] = enabled }
+    }
+
+    /** 迷你条显示模式，默认固定显示。 */
+    val miniBarMode: Flow<MiniBarMode> =
+        context.settingsDataStore.data.map { prefs ->
+            MiniBarMode.entries.firstOrNull { it.name == prefs[KEY_MINI_BAR_MODE] } ?: MiniBarMode.FIXED
+        }
+
+    suspend fun setMiniBarMode(mode: MiniBarMode) {
+        context.settingsDataStore.edit { prefs -> prefs[KEY_MINI_BAR_MODE] = mode.name }
+    }
+
     private companion object {
-        val KEY_NOTIFICATION_LYRICS = booleanPreferencesKey("notification_lyrics_enabled")
         val KEY_AUDIO_QUALITY = stringPreferencesKey("audio_quality")
         val KEY_LYRIC_FONT_SIZE = floatPreferencesKey("lyric_font_size")
+        val KEY_PLAYBACK_SPEED = floatPreferencesKey("playback_speed")
+        val KEY_CAR_BT_LYRICS = booleanPreferencesKey("car_bluetooth_lyrics_enabled")
+        val KEY_SUPER_LYRIC = booleanPreferencesKey("super_lyric_enabled")
+        val KEY_MINI_BAR_MODE = stringPreferencesKey("mini_bar_mode")
 
-        const val LYRIC_FONT_MIN = 10f
-        const val LYRIC_FONT_MAX = 20f
+        const val LYRIC_FONT_MIN = 12f
+        const val LYRIC_FONT_MAX = 24f
         const val LYRIC_FONT_DEFAULT = 20f
+
+        const val SPEED_MIN = 0.5f
+        const val SPEED_MAX = 3f
+        const val SPEED_DEFAULT = 1f
     }
 }

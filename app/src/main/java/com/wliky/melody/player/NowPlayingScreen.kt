@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -51,6 +52,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -77,15 +79,18 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
-import com.wliky.melody.playlist.formatDuration
 import com.wliky.melody.ui.components.CoverImage
 import com.wliky.melody.ui.components.NOW_PLAYING_COVER_KEY
 import com.wliky.melody.ui.components.coverUrlWithSize
 import com.wliky.melody.ui.components.sharedCover
+import com.wliky.melody.ui.theme.MelodyMotion
+import com.wliky.melody.ui.theme.MelodySize
 import com.wliky.melody.ui.theme.Spacing
 import com.wliky.melody.ui.theme.lighten
 import com.wliky.melody.ui.theme.rememberCoverColors
+import com.wliky.melody.ui.util.formatDuration
 import kotlin.math.abs
+import kotlinx.coroutines.delay
 
 /**
  * 全屏播放页（AMLL 风格）：中部三页横滑 —— 左页评论 / 中页封面 / 右页歌词，
@@ -111,7 +116,7 @@ fun NowPlayingScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF141414)),
+                .background(ImmersiveBackground),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -232,7 +237,7 @@ fun NowPlayingScreen(
                         1 -> Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(horizontal = 56.dp),
+                                .padding(horizontal = NowPlayingLayout.CoverSidePadding),
                             contentAlignment = Alignment.Center,
                         ) {
                             // 挂共享元素：从迷你播放条封面飞越放大至此，退出时飞回
@@ -242,9 +247,11 @@ fun NowPlayingScreen(
                                 requestSizePx = 1000,
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    // 大屏 / 横屏：限制封面最大边长，避免 1:1 封面被拉到失真、视觉重心失衡
+                                    .widthIn(max = NowPlayingLayout.CoverMaxSize)
                                     .aspectRatio(1f)
                                     .sharedCover(NOW_PLAYING_COVER_KEY)
-                                    .clip(RoundedCornerShape(24.dp)),
+                                    .clip(MaterialTheme.shapes.large),
                             )
                         }
 
@@ -259,68 +266,72 @@ fun NowPlayingScreen(
                     }
                 }
 
-                // 信息行（进度条上方）：左为歌曲/歌手信息，右为红心与收藏歌单
+                // 信息行（进度条上方）：左为歌曲/歌手信息，右为红心与收藏歌单。
+                // 仅封面页展示：滑到评论/歌词页时完全从组合中移除 ——
+                // ① 不再拦截点击（原先 graphicsLayer alpha=0 仍可点，挡住下方评论/歌词）
+                // ② 释放占位高度，评论/歌词页获得完整显示空间
                 val pagerPosition = pagerState.currentPage + pagerState.currentPageOffsetFraction
                 val titleAlpha = (1f - abs(pagerPosition - 1f)).coerceIn(0f, 1f)
                 val artist = song.artists.firstOrNull()
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = Spacing.screen),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // 左：歌曲 + 歌手（仅封面页展示，滑向评论/歌词页渐隐）
-                    Column(
+                if (titleAlpha > 0.02f) {
+                    Row(
                         modifier = Modifier
-                            .weight(1f)
-                            .graphicsLayer { alpha = titleAlpha },
+                            .fillMaxWidth()
+                            .padding(horizontal = Spacing.screen),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = song.name,
-                            style = MaterialTheme.typography.titleLarge,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = song.subtitle,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFFD8D0C8),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                        // 左：歌曲 + 歌手（滑向评论/歌词页渐隐）
+                        Column(
                             modifier = Modifier
-                                .then(
-                                    if (artist != null && artist.id > 0) {
-                                        Modifier.clickable { onOpenArtist(artist.id, artist.name) }
-                                    } else {
-                                        Modifier
-                                    },
+                                .weight(1f)
+                                .graphicsLayer { alpha = titleAlpha },
+                        ) {
+                            Text(
+                                text = song.name,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = song.subtitle,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = ImmersiveSubtitle,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .then(
+                                        if (artist != null && artist.id > 0) {
+                                            Modifier.clickable { onOpenArtist(artist.id, artist.name) }
+                                        } else {
+                                            Modifier
+                                        },
+                                    )
+                                    .padding(top = 2.dp),
+                            )
+                        }
+                        // 右：红心 + 收藏歌单（与左侧歌名歌手同步显隐）
+                        Row(modifier = Modifier.graphicsLayer { alpha = titleAlpha }) {
+                            IconButton(onClick = { viewModel.toggleLike(song.id) }) {
+                                Icon(
+                                    imageVector = if (liked) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder,
+                                    contentDescription = if (liked) "取消喜欢" else "喜欢",
+                                    tint = if (liked) accent else Color.White,
+                                    modifier = Modifier.size(MelodySize.iconM),
                                 )
-                                .padding(top = 2.dp),
-                        )
-                    }
-                    // 右：红心 + 收藏歌单（与左侧歌名歌手同步显隐，仅封面页可见）
-                    Row(modifier = Modifier.graphicsLayer { alpha = titleAlpha }) {
-                        IconButton(onClick = { viewModel.toggleLike(song.id) }) {
-                            Icon(
-                                imageVector = if (liked) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder,
-                                contentDescription = if (liked) "取消喜欢" else "喜欢",
-                                tint = if (liked) accent else Color.White,
-                                modifier = Modifier.size(24.dp),
-                            )
-                        }
-                        IconButton(onClick = onOpenCollect) {
-                            Icon(
-                                imageVector = Icons.Outlined.PlaylistAdd,
-                                contentDescription = "收藏到歌单",
-                                tint = Color.White,
-                                modifier = Modifier.size(24.dp),
-                            )
+                            }
+                            IconButton(onClick = onOpenCollect) {
+                                Icon(
+                                    imageVector = Icons.Outlined.PlaylistAdd,
+                                    contentDescription = "收藏到歌单",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(MelodySize.iconM),
+                                )
+                            }
                         }
                     }
+                    Spacer(modifier = Modifier.height(Spacing.sm))
                 }
-
-                Spacer(modifier = Modifier.height(Spacing.sm))
 
                 // 进度条（取色强调）
                 ProgressSection(
@@ -352,8 +363,61 @@ fun NowPlayingScreen(
                 Spacer(modifier = Modifier.height(Spacing.md))
             }
         }
+
+        // 红心失败轻提示：短暂浮现后自动消失（多为未登录）
+        viewModel.likeError?.let { message ->
+            LaunchedEffect(message) {
+                delay(2500)
+                viewModel.clearLikeError()
+            }
+            Text(
+                text = message,
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 96.dp)
+                    .background(Color.Black.copy(alpha = 0.62f), CircleShape)
+                    .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+            )
+        }
     }
 }
+
+/**
+ * 播放页布局尺寸（统一来源，不再散落硬编码）：
+ * 封面 / 主播放键 / 次要控制键 / 时间文字，便于按屏幕尺寸（折叠屏、平板、横屏）整体调整。
+ */
+private object NowPlayingLayout {
+    /** 封面左右留白 */
+    val CoverSidePadding = 56.dp
+
+    /** 封面最大边长：大屏不被拉伸失真 */
+    val CoverMaxSize = 420.dp
+
+    /** 主播放键直径：视觉中心，明显大于次要控制键 */
+    val PlayButtonSize = 72.dp
+
+    /** 主播放键内图标（引用全局图标档，消除双源） */
+    val PlayIconSize = MelodySize.iconPlay
+
+    /** 次要控制键图标（上一首 / 下一首 / 队列 / 播放模式，引用全局图标档） */
+    val ControlIconSize = MelodySize.iconL
+
+    /** 拖动进度时浮出的圆点尺寸 */
+    val SeekThumbSize = 14.dp
+}
+
+/**
+ * 沉浸式副标题色（暖白）：播放页固定走「封面取色深背景」，不受系统浅色模式影响，
+ * 因此刻意不复用 Material 语义色 —— 纯白在暖色封面（红 / 橙）上偏冷刺目，低饱和暖白更协调。
+ * （P9 深色模式审计：此处为刻意保留的设计色，非遗漏；若要跟随主题应改用 onSurface。）
+ */
+private val ImmersiveSubtitle = Color(0xFFD8D0C8)
+
+/** 沉浸式兜底背景：无封面取色时的深背景，与 ImmersiveSubtitle 成套使用。 */
+private val ImmersiveBackground = Color(0xFF141414)
 
 /** 顶栏：居中把手（点击关闭，下拉时变宽反馈）。 */
 @Composable
@@ -396,14 +460,25 @@ private fun PageDots(page: Int, accent: Color) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         repeat(3) { i ->
+            val selected = page == i
+            // 当前页拉长成胶囊 + 取色强调，切页时平滑过渡（跟随横滑手势）
+            val dotWidth by animateDpAsState(
+                targetValue = if (selected) 20.dp else 6.dp,
+                animationSpec = tween(MelodyMotion.DurationShort),
+                label = "pageDotWidth",
+            )
+            val dotColor by animateColorAsState(
+                targetValue = if (selected) accent else Color.White.copy(alpha = 0.35f),
+                animationSpec = tween(MelodyMotion.DurationShort),
+                label = "pageDotColor",
+            )
             Box(
                 modifier = Modifier
-                    .padding(horizontal = 4.dp)
-                    .size(if (page == i) 8.dp else 6.dp)
+                    .padding(horizontal = Spacing.xs)
+                    .height(6.dp)
+                    .width(dotWidth)
                     .clip(CircleShape)
-                    .background(
-                        if (page == i) accent else Color.White.copy(alpha = 0.35f),
-                    ),
+                    .background(dotColor),
             )
         }
     }
@@ -434,13 +509,13 @@ private fun ProgressSection(
     val fraction = sliderValue.coerceIn(0f, 1f)
     val thumbScale by animateFloatAsState(
         targetValue = if (dragging) 1f else 0f,
-        animationSpec = tween(150),
+        animationSpec = tween(MelodyMotion.DurationShort),
         label = "thumbScale",
     )
     // 拖动时整条进度条变粗
     val barHeight by animateDpAsState(
         targetValue = if (dragging) 10.dp else 6.dp,
-        animationSpec = tween(160),
+        animationSpec = tween(MelodyMotion.DurationShort),
         label = "barHeight",
     )
 
@@ -487,7 +562,7 @@ private fun ProgressSection(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(barHeight)
-                    .clip(RoundedCornerShape(50))
+                    .clip(CircleShape)
                     .background(contentColor.copy(alpha = 0.28f)),
             )
             // 已播放（取色强调）
@@ -495,7 +570,7 @@ private fun ProgressSection(
                 modifier = Modifier
                     .fillMaxWidth(fraction)
                     .height(barHeight)
-                    .clip(RoundedCornerShape(50))
+                    .clip(CircleShape)
                     .background(accent),
             )
             // thumb：拖动时浮出（沿进度定位）
@@ -508,7 +583,7 @@ private fun ProgressSection(
                             scaleY = thumbScale
                             alpha = thumbScale
                         }
-                        .size(14.dp)
+                        .size(NowPlayingLayout.SeekThumbSize)
                         .clip(CircleShape)
                         .background(accent),
                 )
@@ -523,7 +598,8 @@ private fun ProgressSection(
             Text(
                 text = formatDuration(if (dragging) (dragValue * durationMs).toLong() else positionMs),
                 style = MaterialTheme.typography.bodySmall,
-                color = contentColor.copy(alpha = 0.75f),
+                // 拖动中左侧时间强调为取色：明确当前预览的是这一侧的值
+                color = if (dragging) accent else contentColor.copy(alpha = 0.75f),
             )
             Text(
                 text = formatDuration(durationMs),
@@ -556,7 +632,7 @@ private fun ControlsSection(
     var playPressed by remember { mutableStateOf(false) }
     val playScale by animateFloatAsState(
         targetValue = if (playPressed) 0.92f else 1f,
-        animationSpec = tween(100),
+        animationSpec = tween(MelodyMotion.DurationShort),
         label = "playScale",
     )
 
@@ -583,6 +659,7 @@ private fun ControlsSection(
                 } else {
                     contentColor.copy(alpha = 0.55f)
                 },
+                modifier = Modifier.size(NowPlayingLayout.ControlIconSize),
             )
         }
         IconButton(onClick = onPrevious, enabled = !resolving) {
@@ -590,12 +667,13 @@ private fun ControlsSection(
                 imageVector = Icons.Outlined.SkipPrevious,
                 contentDescription = "上一首",
                 tint = contentColor,
+                modifier = Modifier.size(NowPlayingLayout.ControlIconSize),
             )
         }
-        // 主播放键：取色渐变圆形底 + 按压缩放动效
+        // 主播放键：取色渐变圆形底 + 按压缩放动效（直径明显大于次要键 = 视觉中心）
         Box(
             modifier = Modifier
-                .size(64.dp)
+                .size(NowPlayingLayout.PlayButtonSize)
                 .graphicsLayer {
                     scaleX = playScale
                     scaleY = playScale
@@ -616,7 +694,7 @@ private fun ControlsSection(
         ) {
             if (resolving) {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(28.dp),
+                    modifier = Modifier.size(MelodySize.iconL),
                     color = onAccent,
                     strokeWidth = 2.5.dp,
                 )
@@ -625,7 +703,7 @@ private fun ControlsSection(
                     imageVector = if (isPlaying) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
                     contentDescription = if (isPlaying) "暂停" else "播放",
                     tint = onAccent,
-                    modifier = Modifier.size(36.dp),
+                    modifier = Modifier.size(NowPlayingLayout.PlayIconSize),
                 )
             }
         }
@@ -634,6 +712,7 @@ private fun ControlsSection(
                 imageVector = Icons.Outlined.SkipNext,
                 contentDescription = "下一首",
                 tint = contentColor,
+                modifier = Modifier.size(NowPlayingLayout.ControlIconSize),
             )
         }
         IconButton(onClick = onOpenQueue) {
@@ -641,6 +720,7 @@ private fun ControlsSection(
                 imageVector = Icons.Outlined.QueueMusic,
                 contentDescription = "播放列表",
                 tint = contentColor,
+                modifier = Modifier.size(NowPlayingLayout.ControlIconSize),
             )
         }
     }
